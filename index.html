@@ -151,8 +151,22 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 
 /* ── PANEL ── */
 #panel{width:275px;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);
-       display:flex;flex-direction:column;overflow:hidden;}
-#panel-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;min-height:0;}
+       display:flex;flex-direction:row;overflow:hidden;transition:width .2s ease,border .2s ease;
+       position:relative;}
+#panel.collapsed{width:16px;border-left:none;}
+#panel.collapsed #panel-scroll{display:none;}
+#panel-handle{width:16px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+              cursor:pointer;background:var(--surface);border-left:1px solid var(--border);
+              transition:background .15s;user-select:none;position:relative;}
+#panel-handle:hover{background:var(--surface2);}
+#panel-handle::after{
+  content:attr(data-arrow);
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:9px;color:var(--muted);line-height:1;
+  transition:color .15s;
+}
+#panel-handle:hover::after{color:var(--text);}
+#panel-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;min-height:0;overflow-x:hidden;}
 .psec{padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0;}
 .psec h4{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
          color:var(--muted);margin-bottom:7px;}
@@ -339,6 +353,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
 
   <!-- PANEL -->
   <div id="panel">
+    <div id="panel-handle" data-arrow="›" onclick="togglePanel()" title="Hide sidebar"></div>
   <div id="panel-scroll">
 
     <!-- Stats + OA bar -->
@@ -425,6 +440,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let allPapers=[], authorRec=null, coData=[];
+let geoEnrich={}; // permanent country cache — never wiped by filters
 let vizMode='network', mainView='graph', searchMode='name';
 let minLinks=5, yearMin=1950, yearMax=2025, labelScale=1.0;
 let maxLinks=1000;
@@ -513,11 +529,11 @@ function updateVLegend(){
 // ═══════════════════════════════════════════════════════════════
 function onML(v){minLinks=+v;document.getElementById('ml-v').textContent=v;if(coData.length){updateStats();redraw();}}
 function onMaxLinks(v){maxLinks=+v;document.getElementById('mx-v').textContent=(+v).toLocaleString();if(coData.length)redraw();}
+let _yrTimer=null;
 function onYr(){
   yearMin=+document.getElementById('yr-min').value;
   yearMax=+document.getElementById('yr-max').value;
   if(yearMin>yearMax){
-    // swap if crossed
     [yearMin,yearMax]=[yearMax,yearMin];
     document.getElementById('yr-min').value=yearMin;
     document.getElementById('yr-max').value=yearMax;
@@ -526,7 +542,11 @@ function onYr(){
   document.getElementById('yr-mx-l').textContent=yearMax;
   document.getElementById('yr-v').textContent=yearMin===yearMax?`${yearMin}`:`${yearMin}–${yearMax}`;
   updateYrFill();
-  if(coData.length){buildCoData();updateStats();buildSidebar();buildListData();redraw();}
+  // Debounce: wait 180ms after last slider move before running expensive rebuild
+  clearTimeout(_yrTimer);
+  _yrTimer=setTimeout(()=>{
+    if(coData.length){buildCoData();updateStats();buildSidebar();buildListData();drawTrendChart();buildOABar();redraw();}
+  },180);
 }
 
 function updateYrFill(){
@@ -571,11 +591,16 @@ async function fetchCoauthorCitations(authors){
     const r=await fetch(`https://api.openalex.org/authors?filter=openalex_id:${ids}&per_page=100&select=id,cited_by_count,last_known_institutions`);
     const d=await r.json();
     (d.results||[]).forEach(a=>{
+      const country=a.last_known_institutions?.[0]?.country_code||null;
+      const institution=a.last_known_institutions?.[0]?.display_name||null;
+      const citations=a.cited_by_count||0;
+      // Write to permanent geo cache (never wiped by filters)
+      if(country) geoEnrich[a.id]={country,institution,citations};
       const e=coData.find(c=>c.id===a.id);
       if(e){
-        e.citations=a.cited_by_count||0;
-        e.country=a.last_known_institutions?.[0]?.country_code||null;
-        e.institution=a.last_known_institutions?.[0]?.display_name||null;
+        e.citations=citations;
+        e.country=country;
+        e.institution=institution;
       }
     });
     if(vizMode==='citations'&&coData.length) redraw();
@@ -594,7 +619,7 @@ async function doSearch(){
   btn.disabled=true; btn.textContent='Loading…';
   showStatus('<div class="ring"></div>Searching OpenAlex…');
   document.getElementById('graph').innerHTML='';
-  allPapers=[]; coData=[]; _worldCache=null;
+  allPapers=[]; coData=[]; geoEnrich={}; _worldCache=null;
 
   try{
     let url;
@@ -700,7 +725,7 @@ function normaliseType(t){
 function toggleType(t,el){
   if(enabledTypes.has(t)) enabledTypes.delete(t); else enabledTypes.add(t);
   el.classList.toggle('on',enabledTypes.has(t));
-  buildCoData(); updateStats(); buildSidebar(false); buildListData(); redraw();
+  buildCoData(); updateStats(); buildSidebar(false); buildListData(); drawTrendChart(); buildOABar(); redraw();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -740,12 +765,19 @@ function buildCoData(){
   coData=Object.values(freq).sort((a,b)=>b.count-a.count);
   coData.forEach(c=>{
     c.avgYear=c.yc?Math.round(c.yearSum/c.yc):null;
-    // Restore previously fetched enrichment — never overwrite with zeros
+    // Restore from prevEnrich (within-session filter rebuilds)
     const prev=prevEnrich[c.id];
     if(prev){
       if(prev.citations) c.citations=prev.citations;
       if(prev.country)   c.country=prev.country;
       if(prev.institution) c.institution=prev.institution;
+    }
+    // Also restore from permanent geoEnrich cache (survives across filter rebuilds)
+    const geo=geoEnrich[c.id];
+    if(geo){
+      if(!c.country)      c.country=geo.country;
+      if(!c.institution)  c.institution=geo.institution;
+      if(!c.citations)    c.citations=geo.citations;
     }
   });
 
@@ -764,6 +796,21 @@ function getFilteredPapers(){
     if(yr&&(yr<yearMin||yr>yearMax)) return false;
     if(!enabledTypes.has(normaliseType(p.type))) return false;
     return true;
+  });
+}
+
+function getClusterFilteredPapers(){
+  // If all clusters enabled, no extra filtering needed
+  const vis=getVisible();
+  const allClustersOn=coData.every(c=>enabledClusters.has(c.cluster));
+  if(allClustersOn) return getFilteredPapers();
+  // Build set of visible co-author IDs
+  const visIds=new Set(vis.map(c=>c.id));
+  const mainId=authorRec?.id;
+  return getFilteredPapers().filter(p=>{
+    const auths=p.authorships||[];
+    // Keep paper if it has at least one visible co-author
+    return auths.some(a=>a.author?.id&&a.author.id!==mainId&&visIds.has(a.author.id));
   });
 }
 
@@ -801,11 +848,25 @@ function assignClusters(){
 // ═══════════════════════════════════════════════════════════════
 function updateStats(){
   const vis=getVisible().length;
-  const filtered=getFilteredPapers();
+  const filtered=getClusterFilteredPapers();
+  const isFiltered=filtered.length<allPapers.length;
   const filteredCites=filtered.reduce((s,p)=>s+(p.cited_by_count||0),0);
+
+  // Compute h-index from filtered papers
+  const citeCounts=filtered.map(p=>p.cited_by_count||0).sort((a,b)=>b-a);
+  let hIndex=0;
+  for(let i=0;i<citeCounts.length;i++){if(citeCounts[i]>=i+1)hIndex=i+1;else break;}
+
+  // 2yr mean citedness — average citations of filtered papers from last 2 years
+  const nowY=new Date().getFullYear();
+  const recent=filtered.filter(p=>p.publication_year&&p.publication_year>=nowY-2);
+  const meanCit2yr=recent.length
+    ? (recent.reduce((s,p)=>s+(p.cited_by_count||0),0)/recent.length).toFixed(2)
+    : '—';
+
   const orcidLine=authorRec.orcid
     ?`<div class="srow"><span class="slbl">ORCID</span><span class="sval" style="font-size:10px">${authorRec.orcid.replace('https://orcid.org/','')}</span></div>`:'';
-  const isFiltered=filtered.length<allPapers.length;
+
   document.getElementById('stats').innerHTML=`
     <div class="srow"><span class="slbl">Researcher</span>
       <span class="sval" style="max-width:135px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px">${authorRec.display_name}</span></div>
@@ -813,11 +874,10 @@ function updateStats(){
     <div class="srow"><span class="slbl">Total publications</span><span class="sval">${(authorRec.works_count||allPapers.length).toLocaleString()}</span></div>
     <div class="srow"><span class="slbl">${isFiltered?'Filtered papers':'Loaded papers'}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${filtered.length.toLocaleString()}${isFiltered?` / ${allPapers.length}`:''}</span></div>
     <div class="srow"><span class="slbl">${isFiltered?'Filtered citations':'Total citations'}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${isFiltered?filteredCites.toLocaleString():(authorRec.cited_by_count||0).toLocaleString()}</span></div>
-    <div class="srow"><span class="slbl">h-index</span><span class="sval">${authorRec.summary_stats?.h_index||'—'}</span></div>
-    <div class="srow"><span class="slbl">2yr mean citedness</span><span class="sval">${authorRec.summary_stats?.['2yr_mean_citedness']?.toFixed(2)||'—'}</span></div>
+    <div class="srow"><span class="slbl">h-index${isFiltered?' (filtered)':''}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${hIndex||'—'}</span></div>
+    <div class="srow"><span class="slbl">2yr mean citedness${isFiltered?' (filtered)':''}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${meanCit2yr}</span></div>
     <div class="srow"><span class="slbl">Unique co-authors</span><span class="sval">${coData.length}</span></div>
     <div class="srow"><span class="slbl">Shown (≥${minLinks} papers)</span><span class="sval">${vis}</span></div>
-    <div class="srow"><span class="slbl">Max links</span><span class="sval">${maxLinks.toLocaleString()}</span></div>
   `;
 }
 
@@ -825,10 +885,11 @@ function updateStats(){
 // OA BAR
 // ═══════════════════════════════════════════════════════════════
 function buildOABar(){
+  const papers=getClusterFilteredPapers();
   const counts={diamond:0,gold:0,hybrid:0,green:0,bronze:0,closed:0};
-  allPapers.forEach(p=>{ const s=p.open_access?.oa_status||'closed'; if(counts[s]!==undefined) counts[s]++; });
-  const total=allPapers.length;
-  if(!total) return;
+  papers.forEach(p=>{ const s=p.open_access?.oa_status||'closed'; if(counts[s]!==undefined) counts[s]++; });
+  const total=papers.length;
+  if(!total){document.getElementById('oa-wrap').style.display='none';return;}
 
   const bar=document.getElementById('oa-bar');
   bar.innerHTML=Object.entries(counts).filter(([,v])=>v>0).map(([k,v])=>
@@ -863,10 +924,10 @@ function buildOABar(){
 // TREND CHART (publication count + citations per year)
 // ═══════════════════════════════════════════════════════════════
 function drawTrendChart(){
-  const cby=authorRec.counts_by_year;
-  if(!cby?.length){document.getElementById('trend-sec').style.display='none';return;}
+  const filtered=getClusterFilteredPapers();
+  if(!filtered.length){document.getElementById('trend-sec').style.display='none';return;}
   document.getElementById('trend-sec').style.display='block';
-  renderTrend(cby);
+  renderTrendFromPapers(filtered);
 }
 
 function toggleTrend(){
@@ -875,7 +936,22 @@ function toggleTrend(){
     trendMode==='works'?'Publications per year ':'Citations per year ';
   document.getElementById('trend-mode-lbl').textContent=
     trendMode==='works'?'switch to citations →':'switch to publications →';
-  renderTrend(authorRec.counts_by_year);
+  renderTrendFromPapers(getFilteredPapers());
+}
+
+function renderTrendFromPapers(papers){
+  // Aggregate by year from raw paper objects
+  const byYear={};
+  papers.forEach(p=>{
+    const yr=p.publication_year;
+    if(!yr) return;
+    if(!byYear[yr]) byYear[yr]={year:yr,works_count:0,cited_by_count:0};
+    byYear[yr].works_count++;
+    byYear[yr].cited_by_count+=(p.cited_by_count||0);
+  });
+  const data=Object.values(byYear).sort((a,b)=>a.year-b.year).slice(-15);
+  if(!data.length){document.getElementById('trend-sec').style.display='none';return;}
+  renderTrend(data);
 }
 
 function renderTrend(cby){
@@ -906,7 +982,9 @@ function renderTrend(cby){
     .on('mousemove',(ev,d)=>{
       tip.innerHTML=`<strong>${d.year}</strong><div class="tr">${label}: <span class="tv">${d[key].toLocaleString()}</span></div>`;
       tip.style.display='block';
-      tip.style.left=(ev.clientX+14)+'px';
+      const tipW=tip.offsetWidth||120;
+      const fromRight=window.innerWidth-ev.clientX;
+      tip.style.left=fromRight<tipW+20?(ev.clientX-tipW-8)+'px':(ev.clientX+14)+'px';
       tip.style.top=(ev.clientY-10)+'px';
     })
     .on('mouseleave',()=>tip.style.display='none');
@@ -963,7 +1041,7 @@ function buildClusterFilters(){
 
 function onCFToggle(){
   enabledClusters=new Set([...document.querySelectorAll('#cfilters input:checked')].map(el=>+el.dataset.cluster));
-  updateStats(); buildSidebar(false); redraw();
+  updateStats(); buildSidebar(false); buildListData(); drawTrendChart(); buildOABar(); redraw();
 }
 
 function toggleAllClusters(state){
@@ -1045,7 +1123,13 @@ function decodeAbstract(inv){
 function redraw(){
   if(vizMode==='geo'){drawGeo();return;}
   const vis=getVisible();
-  if(!vis.length){showStatus('<span style="color:var(--muted)">No co-authors match filters.</span>');return;}
+  if(!vis.length){
+    // Stop any running simulation and clear the canvas so nothing freezes
+    if(sim){sim.stop();sim=null;}
+    document.getElementById('graph').innerHTML='';
+    showStatus('<span style="color:var(--muted)">No co-authors match current filters.<br><span style="font-size:11px">Try widening the year range or lowering the Min. shared papers slider.</span></span>');
+    return;
+  }
   hideStatus();
   updateVLegend();
   if(vizMode==='funders') drawFunders();
@@ -1167,7 +1251,7 @@ function drawNetwork(coauthors){
     ?d3.scaleSqrt().domain([0,maxCit]).range([4,34]).clamp(true)
     :d3.scaleSqrt().domain([1,maxC]).range([5,32]).clamp(true);
 
-  const citLinkColor=d3.scaleSequential(d3.interpolateYlOrRd).domain([0,maxS]);
+  const citLinkColor=strength=>{ const t=Math.min(strength/maxS,1); return `rgba(79,195,247,${(0.18+t*0.65).toFixed(2)})`; };
 
   const ctr={id:authorRec.id,label:authorRec.display_name,type:'center',r:22,count:maxC};
 
@@ -1387,6 +1471,12 @@ function drawNetwork(coauthors){
   nd.attr('transform',d=>`translate(${d.x},${d.y})`);
   // Restart at very low alpha for minor final settling only
   sim.alpha(0.06).alphaTarget(0).restart();
+
+  // Default zoom out so the full graph is visible with breathing room
+  const scale=0.72;
+  svg.call(zoomB.transform, d3.zoomIdentity
+    .translate(W*(1-scale)/2, H*(1-scale)/2)
+    .scale(scale));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1497,15 +1587,21 @@ function drawFunders(){
 async function drawGeo(){
   const wrap=document.getElementById('geoview');
 
-  // ── Build country data from current coData ──
+  // ── Build country data from geoEnrich (permanent cache) merged with current coData counts ──
   const countryData={};
-  coData.forEach(c=>{
-    if(!c.country) return;
-    const cc=c.country.toUpperCase();
+  // First pass: use geoEnrich for country assignments (not affected by year filter)
+  // Second pass: use coData for paper counts (filter-aware)
+  const coDataById={};
+  coData.forEach(c=>{coDataById[c.id]=c;});
+  // All known authors (from geoEnrich) contribute to country presence
+  Object.entries(geoEnrich).forEach(([id,geo])=>{
+    if(!geo.country) return;
+    const cc=geo.country.toUpperCase();
+    const c=coDataById[id];
+    const count=c?c.count:0;
     if(!countryData[cc]) countryData[cc]={count:0,collaborators:[],clusters:[]};
-    countryData[cc].count+=c.count;
-    countryData[cc].collaborators.push(c.name);
-    countryData[cc].clusters.push(c.cluster);
+    countryData[cc].count+=count;
+    if(c){countryData[cc].collaborators.push(c.name);countryData[cc].clusters.push(c.cluster);}
   });
 
   if(!Object.keys(countryData).length){
@@ -1669,6 +1765,17 @@ function selNode(id){
     const s=d.source?.id||d.source, t=d.target?.id||d.target;
     return (s===id||t===id) ? 0.9 : 0.02;
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PANEL TOGGLE
+// ═══════════════════════════════════════════════════════════════
+function togglePanel(){
+  const panel=document.getElementById('panel');
+  const handle=document.getElementById('panel-handle');
+  const collapsed=panel.classList.toggle('collapsed');
+  handle.setAttribute('data-arrow', collapsed ? '‹' : '›');
+  handle.title=collapsed?'Show sidebar':'Hide sidebar';
 }
 
 // ═══════════════════════════════════════════════════════════════
