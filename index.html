@@ -1,0 +1,1810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scholarnet — Research Collaboration Explorer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+═══════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#111318; --canvas:#0d0f14; --surface:#1a1d24; --surface2:#21242d;
+  --border:#2a2d38; --border2:#363944;
+  --accent:#4fc3f7; --accent-dim:rgba(79,195,247,0.13);
+  --red:#ef5350; --green:#66bb6a; --yellow:#ffca28; --orange:#ff7043;
+  --text:#dde1ec; --text2:#9aa0b8; --muted:#565c78;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);
+     display:flex;flex-direction:column;font-size:13px;}
+
+/* ── TOPBAR ── */
+#topbar{
+  display:flex;align-items:center;gap:6px;padding:5px 11px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  flex-shrink:0;flex-wrap:wrap;z-index:10;
+}
+/* ── LOGO ── */
+.logo{display:flex;align-items:center;gap:7px;cursor:pointer;flex-shrink:0;}
+.logo-name{font-size:14px;font-weight:700;color:var(--accent);letter-spacing:-0.3px;white-space:nowrap;line-height:1.1;}
+.logo-tag{font-size:9px;font-weight:400;color:var(--muted);letter-spacing:0.4px;text-transform:uppercase;display:block;line-height:1;}
+.brand{font-size:14px;font-weight:600;color:var(--accent);white-space:nowrap;margin-right:3px;}
+
+/* ── WELCOME MODAL ── */
+#modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;
+          display:flex;align-items:center;justify-content:center;animation:fadein .2s ease;}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+#modal{background:var(--surface);border:1px solid var(--border2);border-radius:8px;
+       width:min(620px,94vw);max-height:88vh;overflow-y:auto;
+       box-shadow:0 24px 64px rgba(0,0,0,0.6);animation:slidein .22s ease;}
+@keyframes slidein{from{transform:translateY(18px);opacity:0}to{transform:none;opacity:1}}
+.modal-head{padding:22px 24px 14px;display:flex;align-items:center;gap:14px;
+            border-bottom:1px solid var(--border);}
+.modal-head-text h1{font-size:18px;font-weight:700;color:var(--text);line-height:1.2;}
+.modal-head-text p{font-size:12px;color:var(--text2);margin-top:4px;line-height:1.55;}
+.modal-body{padding:16px 24px 4px;}
+.modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px;}
+.mcard{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:11px 13px;}
+.mcard h3{font-size:11px;font-weight:600;color:var(--accent);margin-bottom:4px;
+          text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;gap:5px;}
+.mcard p{font-size:11.5px;color:var(--text2);line-height:1.6;}
+.mcard strong{color:var(--text);}
+.mcard.highlight{border-color:rgba(171,71,188,0.55);background:rgba(171,71,188,0.07);}
+.mcard.highlight h3{color:#ce93d8;}
+.mcard.full{grid-column:1/-1;}
+.modal-footer{padding:12px 24px 18px;display:flex;align-items:center;
+              justify-content:space-between;border-top:1px solid var(--border);margin-top:8px;}
+.modal-footer label{display:flex;align-items:center;gap:7px;font-size:11px;
+                    color:var(--text2);cursor:pointer;user-select:none;}
+.modal-footer input[type=checkbox]{accent-color:var(--accent);width:13px;height:13px;cursor:pointer;}
+.modal-btn{background:var(--accent);color:#06080f;border:none;
+           font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;
+           padding:7px 22px;border-radius:4px;cursor:pointer;transition:opacity .15s;}
+.modal-btn:hover{opacity:.85;}
+.help-btn{background:transparent;border:1px solid var(--border);color:var(--text2);
+          font-size:11px;font-family:'IBM Plex Sans',sans-serif;padding:3px 8px;
+          border-radius:3px;cursor:pointer;transition:all .15s;flex-shrink:0;margin-left:4px;}
+.help-btn:hover{border-color:var(--border2);color:var(--text);}
+
+.mtoggle{display:flex;border:1px solid var(--border);border-radius:3px;overflow:hidden;}
+.mbtn{background:transparent;border:none;color:var(--text2);font-family:'IBM Plex Sans',sans-serif;
+      font-size:11px;font-weight:500;padding:4px 9px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.mbtn.on{background:var(--accent-dim);color:var(--accent);}
+.swrap{display:flex;gap:4px;align-items:center;flex:1;min-width:200px;max-width:400px;}
+.swrap input{flex:1;background:var(--canvas);border:1px solid var(--border2);color:var(--text);
+  font-family:'IBM Plex Sans',sans-serif;font-size:13px;padding:4px 9px;outline:none;
+  border-radius:3px;transition:border-color .15s;}
+.swrap input:focus{border-color:var(--accent);}
+.swrap input::placeholder{color:var(--muted);}
+.bgo{background:var(--accent);color:#06080f;border:none;font-family:'IBM Plex Sans',sans-serif;
+     font-size:12px;font-weight:600;padding:4px 13px;border-radius:3px;cursor:pointer;
+     white-space:nowrap;transition:opacity .15s;}
+.bgo:hover{opacity:.85;}.bgo:disabled{opacity:.4;cursor:not-allowed;}
+.sep{width:1px;height:20px;background:var(--border);flex-shrink:0;}
+.tabs{display:flex;gap:2px;}
+.tab{background:transparent;border:1px solid var(--border);color:var(--text2);
+     font-family:'IBM Plex Sans',sans-serif;font-size:11px;font-weight:500;
+     padding:3px 9px;cursor:pointer;border-radius:3px;white-space:nowrap;transition:all .15s;}
+.tab:hover{border-color:var(--border2);color:var(--text);}
+.tab.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
+.ibtn{background:transparent;border:1px solid var(--border);color:var(--text2);font-size:13px;
+      width:27px;height:27px;display:flex;align-items:center;justify-content:center;
+      cursor:pointer;border-radius:3px;flex-shrink:0;transition:all .15s;}
+.ibtn:hover{border-color:var(--border2);color:var(--text);}
+.ibtn.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
+
+/* 2nd-degree fetch spinner on node */
+
+/* ── LAYOUT ── */
+#app{display:flex;flex:1;overflow:hidden;}
+
+/* ── CANVAS ── */
+#cvs{flex:1;position:relative;overflow:hidden;background:var(--canvas);}
+#cvs svg{width:100%;height:100%;display:block;}
+#status{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+        text-align:center;color:var(--muted);pointer-events:none;font-size:13px;line-height:2;}
+.ring{width:34px;height:34px;border:2px solid var(--border2);border-top-color:var(--accent);
+      border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 10px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+#zbts{position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:3px;z-index:5;}
+#zbts button{width:28px;height:28px;background:var(--surface);border:1px solid var(--border);
+             color:var(--text2);font-size:15px;cursor:pointer;border-radius:3px;
+             display:flex;align-items:center;justify-content:center;transition:all .15s;}
+#zbts button:hover{border-color:var(--accent);color:var(--accent);}
+#vlegend{position:absolute;bottom:14px;left:14px;background:var(--surface);border:1px solid var(--border);
+         padding:6px 10px;border-radius:4px;font-size:11px;color:var(--text2);
+         display:none;z-index:5;line-height:1.8;max-width:210px;}
+#vlegend b{color:var(--text);display:block;margin-bottom:2px;font-size:11px;}
+
+/* ── LIST VIEW ── */
+#listview{display:none;flex:1;overflow-y:auto;padding:14px 18px;background:var(--canvas);}
+#lsearch{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);
+         font-family:'IBM Plex Sans',sans-serif;font-size:12px;padding:4px 8px;
+         outline:none;border-radius:3px;margin-bottom:8px;}
+#lsearch:focus{border-color:var(--accent);}
+#ltbl{width:100%;border-collapse:collapse;font-size:12px;}
+#ltbl th{text-align:left;color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.07em;
+         text-transform:uppercase;padding:4px 7px;border-bottom:1px solid var(--border);
+         white-space:nowrap;cursor:pointer;user-select:none;}
+#ltbl th:hover{color:var(--text);}
+#ltbl td{padding:5px 7px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.5;}
+#ltbl tr:hover td{background:var(--surface);}
+.tc{color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:11px;}
+.tm{color:var(--text2);}
+.oa-badge{font-size:9px;padding:1px 5px;border-radius:10px;font-weight:600;margin-left:4px;}
+.oa-gold{background:rgba(255,202,40,0.2);color:#ffca28;}
+.oa-green{background:rgba(102,187,106,0.2);color:#66bb6a;}
+.oa-closed{background:rgba(86,92,120,0.2);color:#9aa0b8;}
+.ret-flag{color:var(--red);font-size:9px;font-weight:700;margin-left:4px;}
+
+/* ── GEO MAP VIEW ── */
+#geoview{display:none;flex:1;overflow:hidden;background:var(--canvas);position:relative;}
+#geoview svg{width:100%;height:100%;}
+.geo-tip{background:var(--surface2);border:1px solid var(--border2);padding:6px 9px;
+         font-size:11.5px;border-radius:3px;pointer-events:none;position:fixed;
+         display:none;z-index:999;line-height:1.7;}
+.geo-tip b{color:var(--accent);display:block;}
+
+/* ── PANEL ── */
+#panel{width:275px;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);
+       display:flex;flex-direction:column;overflow:hidden;}
+#panel-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;min-height:0;}
+.psec{padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.psec h4{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+         color:var(--muted);margin-bottom:7px;}
+.srow{display:flex;justify-content:space-between;align-items:center;font-size:12px;
+      padding:2px 0;border-bottom:1px solid var(--border);}
+.srow:last-child{border-bottom:none;}
+.slbl{color:var(--text2);}.sval{color:var(--accent);font-weight:500;font-family:'IBM Plex Mono',monospace;font-size:11.5px;}
+
+/* OA bar */
+.oa-bar-wrap{margin-top:5px;}
+.oa-bar{height:5px;border-radius:2px;display:flex;overflow:hidden;gap:1px;}
+.oa-seg{height:100%;transition:width .3s;}
+.oa-legend{display:flex;flex-direction:column;gap:3px;margin-top:5px;}
+.oa-li{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text2);cursor:default;}
+.oa-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+
+/* Trend chart */
+#trend-chart{width:100%;height:80px;margin-top:4px;}
+
+/* Dual range slider */
+.dual-range-wrap{position:relative;height:20px;margin-top:4px;}
+.dual-track{position:absolute;top:50%;left:0;right:0;height:3px;background:var(--border2);border-radius:2px;transform:translateY(-50%);pointer-events:none;}
+.dual-fill{position:absolute;height:100%;background:var(--accent);border-radius:2px;}
+.dual-range-wrap input[type=range]{position:absolute;top:0;left:0;width:100%;height:100%;
+  -webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;}
+.dual-range-wrap input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;
+  border-radius:50%;background:var(--accent);cursor:pointer;pointer-events:all;border:2px solid var(--surface);}
+.dual-range-wrap input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;
+  background:var(--accent);cursor:pointer;pointer-events:all;border:2px solid var(--surface);}
+
+/* Controls */
+.crow{display:flex;align-items:center;gap:7px;margin-bottom:3px;}
+.clbl{font-size:11.5px;color:var(--text2);flex:1;}
+.cval{font-size:11px;color:var(--accent);font-family:'IBM Plex Mono',monospace;min-width:28px;text-align:right;}
+input[type=range]{-webkit-appearance:none;width:100%;height:3px;background:var(--border2);
+                  border-radius:2px;outline:none;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;
+  border-radius:50%;background:var(--accent);cursor:pointer;}
+
+/* Type filters */
+#type-filters{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
+.tf-chip{font-size:10.5px;padding:2px 8px;border-radius:10px;border:1px solid var(--border2);
+         color:var(--text2);cursor:pointer;transition:all .15s;white-space:nowrap;}
+.tf-chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+
+/* Cluster filters */
+#cfilters{max-height:150px;overflow-y:auto;padding:1px 0;}
+.cfi{display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:11.5px;color:var(--text2);}
+.cfi input[type=checkbox]{accent-color:var(--accent);width:11px;height:11px;cursor:pointer;}
+.cfi-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.cfi-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cfi-ct{color:var(--muted);font-size:10.5px;font-family:'IBM Plex Mono',monospace;}
+.tall-btn{font-size:10px;color:var(--accent);background:none;border:none;cursor:pointer;
+          padding:1px 0 5px;display:block;}
+.tall-btn:hover{text-decoration:underline;}
+
+/* Collab list */
+#clist{padding:3px 0;flex-shrink:0;}
+.ci{display:flex;align-items:center;gap:6px;padding:4px 11px;cursor:pointer;transition:background .1s;}
+.ci:hover{background:var(--surface2);}
+.ci.sel{background:var(--accent-dim);}
+.ci-rk{font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;min-width:20px;}
+.ci-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.ci-nm{font-size:12px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ci-ct{font-size:11px;color:var(--text2);font-family:'IBM Plex Mono',monospace;}
+
+/* Top journals */
+#journals-list{padding:2px 0;}
+.jrow{display:flex;justify-content:space-between;align-items:center;
+      padding:3px 0;font-size:11.5px;border-bottom:1px solid var(--border);}
+.jrow:last-child{border-bottom:none;}
+.jname{color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:6px;}
+.jct{color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:11px;}
+
+/* Tooltip */
+#tip{position:fixed;background:var(--surface2);border:1px solid var(--border2);padding:7px 10px;
+     font-size:12px;max-width:230px;pointer-events:none;z-index:999;display:none;line-height:1.65;
+     border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,0.5);}
+#tip strong{color:var(--accent);display:block;margin-bottom:2px;font-size:12.5px;}
+.tr{color:var(--text2);font-size:11px;}.tv{color:var(--text);}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ TOPBAR ═══════════════ -->
+<div id="topbar">
+  <div class="logo" onclick="showModal()" title="About Scholarnet">
+    <!-- SVG logo mark: stylised node-link graph -->
+    <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- links -->
+      <line x1="15" y1="15" x2="5" y2="7" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
+      <line x1="15" y1="15" x2="25" y2="7" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
+      <line x1="15" y1="15" x2="25" y2="23" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
+      <line x1="15" y1="15" x2="5" y2="23" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
+      <line x1="15" y1="15" x2="15" y2="3" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
+      <!-- inter-link between outer nodes -->
+      <line x1="5" y1="7" x2="25" y2="7" stroke="#ab47bc" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="2,2"/>
+      <line x1="25" y1="7" x2="25" y2="23" stroke="#ab47bc" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="2,2"/>
+      <!-- outer nodes -->
+      <circle cx="5" cy="7" r="3" fill="#4fc3f7" fill-opacity="0.85"/>
+      <circle cx="25" cy="7" r="3" fill="#66bb6a" fill-opacity="0.85"/>
+      <circle cx="25" cy="23" r="3" fill="#ffca28" fill-opacity="0.85"/>
+      <circle cx="5" cy="23" r="3" fill="#ef5350" fill-opacity="0.85"/>
+      <circle cx="15" cy="3" r="3" fill="#ab47bc" fill-opacity="0.85"/>
+      <!-- center node -->
+      <circle cx="15" cy="15" r="5" fill="white" stroke="#4fc3f7" stroke-width="1.5"/>
+    </svg>
+    <div>
+      <div class="logo-name">Scholarnet</div>
+      <span class="logo-tag">Research Explorer</span>
+    </div>
+  </div>
+
+  <div class="mtoggle">
+    <button class="mbtn on" id="m-name" onclick="setMode('name')">Name</button>
+    <button class="mbtn" id="m-orcid" onclick="setMode('orcid')">ORCID</button>
+  </div>
+
+  <div class="swrap">
+    <input type="text" id="qinput" placeholder="Researcher name, e.g. Ian J. Wright" />
+    <button class="bgo" id="sbtn" onclick="doSearch()">Visualize</button>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Viz mode -->
+  <div class="tabs" id="vtabs">
+    <button class="tab on" data-m="network" onclick="setViz('network')" title="Co-authorship network">Network</button>
+    <button class="tab" data-m="citations" onclick="setViz('citations')" title="Node size = co-author citations">Citations</button>
+    <button class="tab" data-m="funders" onclick="setViz('funders')" title="Funder co-occurrence network">Funders</button>
+    <button class="tab" data-m="geo" onclick="setViz('geo')" title="Geographic collaboration map">Geo</button>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="tabs">
+    <button class="tab on" id="tg" onclick="setMainView('graph')">Graph</button>
+    <button class="tab" id="tl" onclick="setMainView('list')">List</button>
+  </div>
+
+  <div class="sep"></div>
+  <button class="ibtn" id="interbtn" title="Show links between co-authors derived from shared papers" onclick="toggleInterLinks()" style="font-size:10px;font-weight:700;width:auto;padding:0 9px;white-space:nowrap;border-color:rgba(171,71,188,0.6);background:rgba(171,71,188,0.12);color:#ce93d8;gap:4px;display:flex;align-items:center;">★ Co-links</button>
+  <button class="help-btn" onclick="showModal()" title="Help & About">?</button>
+</div>
+
+<!-- ═══════════════ MAIN ═══════════════ -->
+<div id="app">
+
+  <!-- CANVAS -->
+  <div id="cvs">
+    <div id="status">
+      <div style="font-size:2rem;color:var(--border);margin-bottom:8px;">◎</div>
+      Search a researcher by name or ORCID<br>to visualize their collaboration network
+    </div>
+    <svg id="graph"></svg>
+    <div id="zbts">
+      <button onclick="zBy(1.3)">+</button>
+      <button onclick="zBy(0.77)">−</button>
+      <button onclick="zReset()" style="font-size:10px;">⊙</button>
+    </div>
+    <div id="vlegend"></div>
+  </div>
+
+  <!-- GEO MAP -->
+  <div id="geoview"></div>
+
+  <!-- LIST VIEW -->
+  <div id="listview">
+    <input type="text" id="lsearch" placeholder="Search collaborators…" oninput="filterList(this.value)" />
+    <table id="ltbl">
+      <thead><tr>
+        <th onclick="sortList('rank')">#</th>
+        <th>Cluster</th>
+        <th onclick="sortList('name')">Name</th>
+        <th onclick="sortList('count')">Papers</th>
+        <th onclick="sortList('strength')">Strength</th>
+        <th onclick="sortList('citations')">Citations</th>
+        <th onclick="sortList('avgYear')">Avg Year</th>
+        <th>Country</th>
+      </tr></thead>
+      <tbody id="lbody"></tbody>
+    </table>
+  </div>
+
+  <!-- PANEL -->
+  <div id="panel">
+  <div id="panel-scroll">
+
+    <!-- Stats + OA bar -->
+    <div class="psec">
+      <h4>Statistics</h4>
+      <div id="stats" style="color:var(--muted);font-size:12px;">No data loaded</div>
+      <div class="oa-bar-wrap" id="oa-wrap" style="display:none;">
+        <div class="oa-bar" id="oa-bar"></div>
+        <div class="oa-legend" id="oa-legend"></div>
+      </div>
+    </div>
+
+    <!-- Publication / citation trend -->
+    <div class="psec" id="trend-sec" style="display:none;">
+      <h4 id="trend-heading">Publications per year <span id="trend-mode-lbl" style="color:var(--accent);font-size:9px;cursor:pointer;margin-left:4px;font-weight:400;text-transform:none;letter-spacing:0;" onclick="toggleTrend()">switch to citations →</span></h4>
+      <svg id="trend-chart"></svg>
+    </div>
+
+    <!-- Controls -->
+    <div class="psec">
+      <h4>Controls</h4>
+      <div class="crow"><span class="clbl">Min. shared papers</span><span class="cval" id="ml-v">5</span></div>
+      <input type="range" id="ml-s" min="1" max="20" value="5" oninput="onML(this.value)"/>
+
+      <div style="margin-top:8px;">
+        <div class="crow"><span class="clbl">Max links shown</span><span class="cval" id="mx-v">1000</span></div>
+        <input type="range" id="mx-s" min="50" max="5000" step="50" value="1000" oninput="onMaxLinks(this.value)"/>
+      </div>
+
+      <div style="margin-top:8px;">
+        <div class="crow"><span class="clbl">Year range</span><span class="cval" id="yr-v" style="white-space:nowrap;">all</span></div>
+        <div class="dual-range-wrap" id="yr-wrap">
+          <div class="dual-track">
+            <div class="dual-fill" id="yr-fill"></div>
+          </div>
+          <input type="range" id="yr-min" min="1950" max="2025" value="1950" oninput="onYr()"/>
+          <input type="range" id="yr-max" min="1950" max="2025" value="2025" oninput="onYr()"/>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px;">
+          <span id="yr-mn-l">1950</span><span id="yr-mx-l">2025</span>
+        </div>
+      </div>
+
+      <div style="margin-top:8px;">
+        <div class="crow"><span class="clbl">Label scale</span><span class="cval" id="ls-v">1.0×</span></div>
+        <input type="range" id="ls-s" min="5" max="20" value="10" oninput="onLS(this.value)"/>
+      </div>
+    </div>
+
+    <!-- Work type filter -->
+    <div class="psec">
+      <h4>Work Type Filter</h4>
+      <div id="type-filters"></div>
+    </div>
+
+    <!-- Topic cluster filter -->
+    <div class="psec" id="csec" style="display:none;">
+      <h4>Topic Clusters</h4>
+      <button class="tall-btn" id="tall-btn" onclick="toggleAllClusters(true)">Select all</button>
+      <div id="cfilters"></div>
+    </div>
+
+    <!-- Top journals -->
+    <div class="psec" id="journals-sec" style="display:none;">
+      <h4>Top Journals</h4>
+      <div id="journals-list"></div>
+    </div>
+
+    <!-- Collab list header -->
+    <div class="psec" style="padding-bottom:0;border-bottom:none;">
+      <h4>Top Collaborators</h4>
+    </div>
+    <div id="clist"><div style="padding:10px 12px;color:var(--muted);font-size:12px;">—</div></div>
+
+  </div><!-- end panel-scroll -->
+  </div>
+</div>
+
+<div id="tip"></div>
+<div class="geo-tip" id="geotip"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let allPapers=[], authorRec=null, coData=[];
+let vizMode='network', mainView='graph', searchMode='name';
+let minLinks=5, yearMin=1950, yearMax=2025, labelScale=1.0;
+let maxLinks=1000;
+let dark=true, selId=null;
+let zoomB=null, svgSel=null, sim=null;
+let listAll=[], listSortKey='count', listSortDir=-1;
+let enabledClusters=new Set();
+let enabledTypes=new Set(['article','book','book-chapter','preprint','dataset','other']);
+let trendMode='works';
+let geoProjection=null, geoZoomB=null;
+let _worldCache=null;
+// Inter-collaborator links toggle
+let interLinksEnabled=false;
+
+const COLORS=[
+  '#4fc3f7','#ef5350','#66bb6a','#ffca28','#ab47bc',
+  '#ff7043','#26c6da','#ec407a','#8d6e63','#78909c',
+  '#d4e157','#5c6bc0','#f48fb1','#26a69a','#ffa726'
+];
+
+const TYPE_LABELS={
+  'article':'Article','book':'Book','book-chapter':'Book Chapter',
+  'preprint':'Preprint','dataset':'Dataset','other':'Other'
+};
+
+const OA_COLORS={
+  'diamond':'#4fc3f7','gold':'#ffca28','hybrid':'#ff7043',
+  'green':'#66bb6a','bronze':'#a1887f','closed':'#565c78'
+};
+
+// ═══════════════════════════════════════════════════════════════
+// SEARCH MODE
+// ═══════════════════════════════════════════════════════════════
+function setMode(m){
+  searchMode=m;
+  document.getElementById('m-name').classList.toggle('on',m==='name');
+  document.getElementById('m-orcid').classList.toggle('on',m==='orcid');
+  document.getElementById('qinput').placeholder=
+    m==='orcid'?'ORCID iD, e.g. 0000-0001-5728-9699':'Researcher name, e.g. Ian J. Wright';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// THEME
+// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// VIZ + MAIN VIEW
+// ═══════════════════════════════════════════════════════════════
+function setViz(m){
+  vizMode=m;
+  document.querySelectorAll('#vtabs .tab').forEach(t=>t.classList.toggle('on',t.dataset.m===m));
+  // Show/hide geo panel vs canvas
+  const isGeo=(m==='geo');
+  document.getElementById('cvs').style.display=isGeo?'none':'';
+  document.getElementById('geoview').style.display=isGeo?'flex':'none';
+  document.getElementById('listview').style.display='none';
+  document.getElementById('tg').classList.add('on');
+  document.getElementById('tl').classList.remove('on');
+  mainView='graph';
+  updateVLegend();
+  if(coData.length) redraw();
+}
+
+function setMainView(v){
+  mainView=v;
+  document.getElementById('tg').classList.toggle('on',v==='graph');
+  document.getElementById('tl').classList.toggle('on',v==='list');
+  if(vizMode==='geo'){document.getElementById('geoview').style.display=v==='graph'?'flex':'none';}
+  else{document.getElementById('cvs').style.display=v==='graph'?'':'none';}
+  document.getElementById('listview').style.display=v==='list'?'block':'none';
+}
+
+function updateVLegend(){
+  const el=document.getElementById('vlegend');
+  const m={
+    network:`<b>Network</b>Node size = shared papers<br>Link weight = fractional strength${interLinksEnabled?'<br><span style="color:rgba(171,71,188,0.9)">— — —</span> co-author links':''}`,
+    citations:`<b>Citations</b>Node size = co-author total citations<br>Link colour = strength intensity${interLinksEnabled?'<br><span style="color:rgba(171,71,188,0.9)">— — —</span> co-author links':''}`,
+    funders:'<b>Funders</b>Nodes = funding agencies<br>Size = papers funded',
+    geo:'<b>Geographic Map</b>Country colour = collaboration intensity'
+  };
+  el.innerHTML=m[vizMode]||'';
+  el.style.display=(coData.length&&vizMode!=='geo')?'block':'none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONTROLS
+// ═══════════════════════════════════════════════════════════════
+function onML(v){minLinks=+v;document.getElementById('ml-v').textContent=v;if(coData.length){updateStats();redraw();}}
+function onMaxLinks(v){maxLinks=+v;document.getElementById('mx-v').textContent=(+v).toLocaleString();if(coData.length)redraw();}
+function onYr(){
+  yearMin=+document.getElementById('yr-min').value;
+  yearMax=+document.getElementById('yr-max').value;
+  if(yearMin>yearMax){
+    // swap if crossed
+    [yearMin,yearMax]=[yearMax,yearMin];
+    document.getElementById('yr-min').value=yearMin;
+    document.getElementById('yr-max').value=yearMax;
+  }
+  document.getElementById('yr-mn-l').textContent=yearMin;
+  document.getElementById('yr-mx-l').textContent=yearMax;
+  document.getElementById('yr-v').textContent=yearMin===yearMax?`${yearMin}`:`${yearMin}–${yearMax}`;
+  updateYrFill();
+  if(coData.length){buildCoData();updateStats();buildSidebar();buildListData();redraw();}
+}
+
+function updateYrFill(){
+  const mn=document.getElementById('yr-min');
+  const mx=document.getElementById('yr-max');
+  const min=+mn.min, max=+mn.max;
+  const lo=((+mn.value-min)/(max-min))*100;
+  const hi=((+mx.value-min)/(max-min))*100;
+  const fill=document.getElementById('yr-fill');
+  if(fill){fill.style.left=lo+'%';fill.style.width=(hi-lo)+'%';}
+}
+function onLS(v){labelScale=v/10;document.getElementById('ls-v').textContent=labelScale.toFixed(1)+'×';if(coData.length)redraw();}
+
+// ═══════════════════════════════════════════════════════════════
+// STATUS
+// ═══════════════════════════════════════════════════════════════
+function showStatus(h){const s=document.getElementById('status');s.style.display='block';s.innerHTML=h;}
+function hideStatus(){document.getElementById('status').style.display='none';}
+
+// ═══════════════════════════════════════════════════════════════
+// FETCH HELPERS
+// ═══════════════════════════════════════════════════════════════
+async function fetchAllWorks(authorId){
+  const PER=200;let cursor='*',total=null,works=[];
+  while(true){
+    showStatus(`<div class="ring"></div>Fetching publications…${total?` (${works.length} / ${total})`:''}`);
+    const r=await fetch(`https://api.openalex.org/works?filter=author.id:${authorId}&per_page=${PER}&cursor=${encodeURIComponent(cursor)}`);
+    const d=await r.json();
+    if(total===null&&d.meta?.count!=null) total=d.meta.count;
+    const res=d.results||[];
+    works.push(...res);
+    const nc=d.meta?.next_cursor;
+    if(!nc||!res.length) break;
+    cursor=nc;
+  }
+  return works;
+}
+
+async function fetchCoauthorCitations(authors){
+  try{
+    const ids=authors.map(a=>a.id.replace('https://openalex.org/','')).join('|');
+    const r=await fetch(`https://api.openalex.org/authors?filter=openalex_id:${ids}&per_page=100&select=id,cited_by_count,last_known_institutions`);
+    const d=await r.json();
+    (d.results||[]).forEach(a=>{
+      const e=coData.find(c=>c.id===a.id);
+      if(e){
+        e.citations=a.cited_by_count||0;
+        e.country=a.last_known_institutions?.[0]?.country_code||null;
+        e.institution=a.last_known_institutions?.[0]?.display_name||null;
+      }
+    });
+    if(vizMode==='citations'&&coData.length) redraw();
+    else if(vizMode==='geo') drawGeo();
+    buildListData();
+  }catch(e){/*non-critical*/}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN SEARCH
+// ═══════════════════════════════════════════════════════════════
+async function doSearch(){
+  const q=document.getElementById('qinput').value.trim();
+  if(!q) return;
+  const btn=document.getElementById('sbtn');
+  btn.disabled=true; btn.textContent='Loading…';
+  showStatus('<div class="ring"></div>Searching OpenAlex…');
+  document.getElementById('graph').innerHTML='';
+  allPapers=[]; coData=[]; _worldCache=null;
+
+  try{
+    let url;
+    if(searchMode==='orcid'){
+      // Normalise ORCID — strip URL prefix if pasted
+      const orcid=q.replace(/^.*orcid\.org\//,'').trim();
+      url=`https://api.openalex.org/authors?filter=orcid:${encodeURIComponent(orcid)}&per_page=1`;
+    } else {
+      url=`https://api.openalex.org/authors?search=${encodeURIComponent(q)}&per_page=1`;
+    }
+    const ar=await fetch(url);
+    const aj=await ar.json();
+    if(!aj.results?.length){showStatus('<span style="color:var(--red)">No researcher found. Check spelling or try ORCID.</span>');return;}
+    authorRec=aj.results[0];
+    const authorId=authorRec.id.replace('https://openalex.org/','');
+
+    allPapers=await fetchAllWorks(authorId);
+    if(!allPapers.length){showStatus('<span style="color:var(--red)">No publications found.</span>');return;}
+
+    initYearSliders();
+    buildTypeFilters();
+    buildCoData();
+
+    // ── Auto-set minLinks to target ~100 visible co-authors ──
+    // Walk the sorted coData (descending count) to find the threshold
+    // where the visible set is closest to 100 nodes.
+    const TARGET=100;
+    let bestMin=1, bestDiff=Infinity;
+    const counts=coData.map(c=>c.count);
+    // Unique thresholds to test: 1 up to max
+    const maxCount=counts[0]||1;
+    for(let t=1;t<=maxCount;t++){
+      const visible=counts.filter(c=>c>=t).length;
+      const diff=Math.abs(visible-TARGET);
+      if(diff<bestDiff){bestDiff=diff;bestMin=t;}
+      if(visible<TARGET*0.5) break; // no point going higher — already too few
+    }
+    minLinks=Math.max(1,bestMin);
+    const slEl=document.getElementById('ml-s');
+    slEl.value=minLinks;
+    document.getElementById('ml-v').textContent=minLinks;
+    updateStats();
+    drawTrendChart();
+    buildOABar();
+    buildJournals();
+    buildClusterFilters();
+    buildSidebar();
+    buildListData();
+    fetchCoauthorCitations(coData.slice(0,100));
+    redraw();
+
+  }catch(e){
+    showStatus(`<span style="color:var(--red)">Error: ${e.message}</span>`);
+    console.error(e);
+  }finally{btn.disabled=false;btn.textContent='Visualize';}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// YEAR SLIDERS INIT
+// ═══════════════════════════════════════════════════════════════
+function initYearSliders(){
+  const yrs=allPapers.map(p=>p.publication_year).filter(Boolean);
+  if(!yrs.length) return;
+  const mn=Math.min(...yrs),mx=Math.max(...yrs);
+  yearMin=mn; yearMax=mx;
+  ['yr-min','yr-max'].forEach((id,i)=>{
+    const el=document.getElementById(id);
+    el.min=mn; el.max=mx; el.value=i===0?mn:mx;
+  });
+  document.getElementById('yr-mn-l').textContent=yearMin;
+  document.getElementById('yr-mx-l').textContent=yearMax;
+  document.getElementById('yr-v').textContent=`${yearMin}–${yearMax}`;
+  updateYrFill();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TYPE FILTERS
+// ═══════════════════════════════════════════════════════════════
+function buildTypeFilters(){
+  const counts={};
+  allPapers.forEach(p=>{
+    const t=normaliseType(p.type);
+    counts[t]=(counts[t]||0)+1;
+  });
+  enabledTypes=new Set(Object.keys(counts));
+  document.getElementById('type-filters').innerHTML=
+    Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([t,ct])=>`
+      <span class="tf-chip on" data-type="${t}" onclick="toggleType('${t}',this)"
+            title="${ct} works">${TYPE_LABELS[t]||t} <span style="opacity:.6">${ct}</span></span>
+    `).join('');
+}
+
+function normaliseType(t){
+  if(!t) return 'other';
+  if(t==='journal-article'||t==='article') return 'article';
+  if(t.includes('book-chapter')) return 'book-chapter';
+  if(t==='book'||t==='monograph') return 'book';
+  if(t==='preprint'||t==='posted-content') return 'preprint';
+  if(t==='dataset') return 'dataset';
+  return 'other';
+}
+
+function toggleType(t,el){
+  if(enabledTypes.has(t)) enabledTypes.delete(t); else enabledTypes.add(t);
+  el.classList.toggle('on',enabledTypes.has(t));
+  buildCoData(); updateStats(); buildSidebar(false); buildListData(); redraw();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BUILD CO-AUTHOR DATA
+// ═══════════════════════════════════════════════════════════════
+function buildCoData(){
+  const mainId=authorRec.id;
+  const freq={};
+
+  // Snapshot previously fetched enrichment data so we don't lose it on filter rebuilds
+  const prevEnrich={};
+  coData.forEach(c=>{
+    prevEnrich[c.id]={citations:c.citations||0,country:c.country||null,institution:c.institution||null};
+  });
+
+  getFilteredPapers().forEach(paper=>{
+    const auths=paper.authorships||[];
+    if(!auths.some(a=>a.author?.id===mainId)) return;
+    const co=auths.length-1;
+    const yr=paper.publication_year;
+
+    auths.forEach(a=>{
+      const id=a.author?.id,nm=a.author?.display_name;
+      if(!id||!nm||id===mainId) return;
+      if(!freq[id]){
+        // Seed institution from authorship object if available (no extra fetch needed)
+        const instFromAuth=a.institutions?.[0]?.display_name||null;
+        freq[id]={id,name:nm,count:0,strength:0,yearSum:0,yc:0,
+          citations:0,country:null,institution:instFromAuth};
+      }
+      freq[id].count++;
+      freq[id].strength+=co>0?1/co:1;
+      if(yr){freq[id].yearSum+=yr;freq[id].yc++;}
+    });
+  });
+
+  coData=Object.values(freq).sort((a,b)=>b.count-a.count);
+  coData.forEach(c=>{
+    c.avgYear=c.yc?Math.round(c.yearSum/c.yc):null;
+    // Restore previously fetched enrichment — never overwrite with zeros
+    const prev=prevEnrich[c.id];
+    if(prev){
+      if(prev.citations) c.citations=prev.citations;
+      if(prev.country)   c.country=prev.country;
+      if(prev.institution) c.institution=prev.institution;
+    }
+  });
+
+  assignClusters();
+
+  const mx=coData.length?coData[0].count:1;
+  const sl=document.getElementById('ml-s');
+  sl.max=mx; if(+sl.value>mx){sl.value=5;minLinks=5;document.getElementById('ml-v').textContent=5;}
+
+  enabledClusters=new Set(coData.map(c=>c.cluster));
+}
+
+function getFilteredPapers(){
+  return allPapers.filter(p=>{
+    const yr=p.publication_year;
+    if(yr&&(yr<yearMin||yr>yearMax)) return false;
+    if(!enabledTypes.has(normaliseType(p.type))) return false;
+    return true;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLUSTERING (topic-based)
+// ═══════════════════════════════════════════════════════════════
+function assignClusters(){
+  const mainId=authorRec.id;
+  const at={};
+  getFilteredPapers().forEach(p=>{
+    const auths=p.authorships||[];
+    if(!auths.some(a=>a.author?.id===mainId)) return;
+    const topic=p.topics?.[0]?.display_name;
+    if(!topic) return;
+    auths.forEach(a=>{
+      const id=a.author?.id;
+      if(!id||id===mainId) return;
+      if(!at[id]) at[id]={};
+      at[id][topic]=(at[id][topic]||0)+1;
+    });
+  });
+  const tc={},cn={};let cc=0;
+  coData.forEach(c=>{
+    const topics=at[c.id]||{};
+    const top=Object.entries(topics).sort((a,b)=>b[1]-a[1])[0]?.[0];
+    if(top&&tc[top]!==undefined){c.cluster=tc[top];c.clusterTopic=top;}
+    else if(top){c.cluster=cc%COLORS.length;tc[top]=c.cluster;cn[c.cluster]=top;c.clusterTopic=top;cc++;}
+    else{c.cluster=cc%COLORS.length;cc++;}
+  });
+  window._cn=cn;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════════════════════════
+function updateStats(){
+  const vis=getVisible().length;
+  const filtered=getFilteredPapers();
+  const filteredCites=filtered.reduce((s,p)=>s+(p.cited_by_count||0),0);
+  const orcidLine=authorRec.orcid
+    ?`<div class="srow"><span class="slbl">ORCID</span><span class="sval" style="font-size:10px">${authorRec.orcid.replace('https://orcid.org/','')}</span></div>`:'';
+  const isFiltered=filtered.length<allPapers.length;
+  document.getElementById('stats').innerHTML=`
+    <div class="srow"><span class="slbl">Researcher</span>
+      <span class="sval" style="max-width:135px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px">${authorRec.display_name}</span></div>
+    ${orcidLine}
+    <div class="srow"><span class="slbl">Total publications</span><span class="sval">${(authorRec.works_count||allPapers.length).toLocaleString()}</span></div>
+    <div class="srow"><span class="slbl">${isFiltered?'Filtered papers':'Loaded papers'}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${filtered.length.toLocaleString()}${isFiltered?` / ${allPapers.length}`:''}</span></div>
+    <div class="srow"><span class="slbl">${isFiltered?'Filtered citations':'Total citations'}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${isFiltered?filteredCites.toLocaleString():(authorRec.cited_by_count||0).toLocaleString()}</span></div>
+    <div class="srow"><span class="slbl">h-index</span><span class="sval">${authorRec.summary_stats?.h_index||'—'}</span></div>
+    <div class="srow"><span class="slbl">2yr mean citedness</span><span class="sval">${authorRec.summary_stats?.['2yr_mean_citedness']?.toFixed(2)||'—'}</span></div>
+    <div class="srow"><span class="slbl">Unique co-authors</span><span class="sval">${coData.length}</span></div>
+    <div class="srow"><span class="slbl">Shown (≥${minLinks} papers)</span><span class="sval">${vis}</span></div>
+    <div class="srow"><span class="slbl">Max links</span><span class="sval">${maxLinks.toLocaleString()}</span></div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OA BAR
+// ═══════════════════════════════════════════════════════════════
+function buildOABar(){
+  const counts={diamond:0,gold:0,hybrid:0,green:0,bronze:0,closed:0};
+  allPapers.forEach(p=>{ const s=p.open_access?.oa_status||'closed'; if(counts[s]!==undefined) counts[s]++; });
+  const total=allPapers.length;
+  if(!total) return;
+
+  const bar=document.getElementById('oa-bar');
+  bar.innerHTML=Object.entries(counts).filter(([,v])=>v>0).map(([k,v])=>
+    `<div class="oa-seg" style="width:${(v/total*100).toFixed(1)}%;background:${OA_COLORS[k]||'#888'}" title="${k}: ${v}"></div>`
+  ).join('');
+
+  const oa=total-counts.closed;
+  const oaPct=((oa/total)*100).toFixed(0);
+  // Build legend — all slices together = 100%
+  const OA_LABELS={
+    diamond:'Diamond OA (free to publish & read)',
+    gold:'Gold OA (paid APC, fully open)',
+    hybrid:'Hybrid OA (open in subscription journal)',
+    green:'Green OA (self-archived copy)',
+    bronze:'Bronze (free to read, no licence)',
+    closed:'Closed / paywalled'
+  };
+  document.getElementById('oa-legend').innerHTML=
+    `<div style="font-size:10.5px;color:var(--text);font-weight:600;margin-bottom:3px;">${oaPct}% open access · ${((counts.closed/total)*100).toFixed(0)}% closed</div>`+
+    Object.entries(counts).filter(([,v])=>v>0).map(([k,v])=>
+      `<div class="oa-li" title="${OA_LABELS[k]||k}">
+        <div class="oa-dot" style="background:${OA_COLORS[k]}"></div>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${OA_LABELS[k]||k}">${k}</span>
+        <span style="color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:10.5px;margin-left:4px;">${((v/total)*100).toFixed(1)}%</span>
+      </div>`
+    ).join('');
+
+  document.getElementById('oa-wrap').style.display='block';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TREND CHART (publication count + citations per year)
+// ═══════════════════════════════════════════════════════════════
+function drawTrendChart(){
+  const cby=authorRec.counts_by_year;
+  if(!cby?.length){document.getElementById('trend-sec').style.display='none';return;}
+  document.getElementById('trend-sec').style.display='block';
+  renderTrend(cby);
+}
+
+function toggleTrend(){
+  trendMode=trendMode==='works'?'citations':'works';
+  document.getElementById('trend-heading').childNodes[0].textContent=
+    trendMode==='works'?'Publications per year ':'Citations per year ';
+  document.getElementById('trend-mode-lbl').textContent=
+    trendMode==='works'?'switch to citations →':'switch to publications →';
+  renderTrend(authorRec.counts_by_year);
+}
+
+function renderTrend(cby){
+  const data=[...cby].sort((a,b)=>a.year-b.year).slice(-15);
+  const key=trendMode==='works'?'works_count':'cited_by_count';
+  const svg=d3.select('#trend-chart');
+  svg.selectAll('*').remove();
+
+  const W=+svg.style('width').replace('px','')||240;
+  const H=80;
+  const pad={t:8,r:6,b:22,l:30};
+  const iw=W-pad.l-pad.r, ih=H-pad.t-pad.b;
+
+  const x=d3.scaleBand().domain(data.map(d=>d.year)).range([0,iw]).padding(0.25);
+  const y=d3.scaleLinear().domain([0,d3.max(data,d=>d[key])||1]).range([ih,0]).nice();
+
+  const g=svg.append('g').attr('transform',`translate(${pad.l},${pad.t})`);
+  const tip=document.getElementById('tip');
+  const label=trendMode==='works'?'Publications':'Citations';
+
+  // Bars
+  g.selectAll('rect').data(data).join('rect')
+    .attr('x',d=>x(d.year)).attr('y',d=>y(d[key]))
+    .attr('width',x.bandwidth()).attr('height',d=>ih-y(d[key]))
+    .attr('fill',dark?'rgba(79,195,247,0.55)':'rgba(21,101,192,0.45)')
+    .attr('rx',1)
+    .style('cursor','crosshair')
+    .on('mousemove',(ev,d)=>{
+      tip.innerHTML=`<strong>${d.year}</strong><div class="tr">${label}: <span class="tv">${d[key].toLocaleString()}</span></div>`;
+      tip.style.display='block';
+      tip.style.left=(ev.clientX+14)+'px';
+      tip.style.top=(ev.clientY-10)+'px';
+    })
+    .on('mouseleave',()=>tip.style.display='none');
+
+  // X axis — show every 3rd year to avoid crowding
+  g.append('g').attr('transform',`translate(0,${ih})`).call(
+    d3.axisBottom(x).tickValues(data.filter((_,i)=>i%3===0).map(d=>d.year)).tickSize(0).tickPadding(4)
+  ).select('.domain').remove();
+  g.selectAll('.tick text').attr('fill',dark?'#565c78':'#8c90aa').attr('font-size',9);
+
+  // Y axis — just 3 ticks
+  g.append('g').call(d3.axisLeft(y).ticks(3).tickFormat(d=>d>=1000?d/1000+'k':d).tickSize(0).tickPadding(4))
+    .select('.domain').remove();
+  g.selectAll('.tick text').attr('fill',dark?'#565c78':'#8c90aa').attr('font-size',9);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TOP JOURNALS
+// ═══════════════════════════════════════════════════════════════
+function buildJournals(){
+  const jmap={};
+  getFilteredPapers().forEach(p=>{
+    const j=p.primary_location?.source?.display_name;
+    if(j) jmap[j]=(jmap[j]||0)+1;
+  });
+  const top=Object.entries(jmap).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(!top.length){document.getElementById('journals-sec').style.display='none';return;}
+  document.getElementById('journals-list').innerHTML=top.map(([j,ct])=>`
+    <div class="jrow"><span class="jname" title="${j}">${j.length>28?j.slice(0,26)+'…':j}</span><span class="jct">${ct}</span></div>
+  `).join('');
+  document.getElementById('journals-sec').style.display='block';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLUSTER FILTERS
+// ═══════════════════════════════════════════════════════════════
+function buildClusterFilters(){
+  const cm={};
+  coData.forEach(c=>{
+    if(!cm[c.cluster]) cm[c.cluster]={count:0,color:COLORS[c.cluster%COLORS.length],name:window._cn?.[c.cluster]||`Cluster ${c.cluster+1}`};
+    cm[c.cluster].count++;
+  });
+  const cls=Object.entries(cm).sort((a,b)=>b[1].count-a[1].count);
+  document.getElementById('cfilters').innerHTML=cls.map(([id,inf])=>`
+    <label class="cfi">
+      <input type="checkbox" checked data-cluster="${id}" onchange="onCFToggle()"/>
+      <span class="cfi-dot" style="background:${inf.color}"></span>
+      <span class="cfi-lbl" title="${inf.name}">${inf.name.length>26?inf.name.slice(0,24)+'…':inf.name}</span>
+      <span class="cfi-ct">${inf.count}</span>
+    </label>
+  `).join('');
+  document.getElementById('csec').style.display='block';
+}
+
+function onCFToggle(){
+  enabledClusters=new Set([...document.querySelectorAll('#cfilters input:checked')].map(el=>+el.dataset.cluster));
+  updateStats(); buildSidebar(false); redraw();
+}
+
+function toggleAllClusters(state){
+  document.querySelectorAll('#cfilters input').forEach(el=>el.checked=state);
+  enabledClusters=state?new Set(coData.map(c=>c.cluster)):new Set();
+  const btn=document.getElementById('tall-btn');
+  btn.textContent=state?'Deselect all':'Select all';
+  btn.onclick=()=>toggleAllClusters(!state);
+  updateStats(); buildSidebar(false); redraw();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VISIBLE DATA
+// ═══════════════════════════════════════════════════════════════
+function getVisible(){
+  return coData.filter(c=>c.count>=minLinks&&enabledClusters.has(c.cluster));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SIDEBAR
+// ═══════════════════════════════════════════════════════════════
+function buildSidebar(rebuildFilters=true){
+  if(rebuildFilters) buildClusterFilters();
+  const vis=getVisible().slice(0,60);
+  document.getElementById('clist').innerHTML=vis.length
+    ?vis.map((c,i)=>`
+        <div class="ci" data-id="${c.id}" onclick="selNode('${c.id}')">
+          <span class="ci-rk">${i+1}</span>
+          <span class="ci-dot" style="background:${COLORS[c.cluster%COLORS.length]}"></span>
+          <span class="ci-nm" title="${c.name}">${c.name}</span>
+          <span class="ci-ct">${c.count}</span>
+        </div>`).join('')
+    :'<div style="padding:10px 12px;color:var(--muted);font-size:12px;">No matches</div>';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LIST VIEW
+// ═══════════════════════════════════════════════════════════════
+function buildListData(){listAll=[...coData];renderList(listAll);}
+function renderList(data){
+  document.getElementById('lbody').innerHTML=data.map((c,i)=>`
+    <tr>
+      <td class="tm">${i+1}</td>
+      <td><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${COLORS[c.cluster%COLORS.length]}"></span></td>
+      <td>${c.name}</td>
+      <td class="tc">${c.count}</td>
+      <td class="tm">${c.strength.toFixed(3)}</td>
+      <td class="tm">${c.citations?c.citations.toLocaleString():'—'}</td>
+      <td class="tm">${c.avgYear||'—'}</td>
+      <td class="tm">${c.country||'—'}</td>
+    </tr>`).join('');
+}
+function filterList(q){const f=q.toLowerCase();renderList(f?listAll.filter(c=>c.name.toLowerCase().includes(f)):listAll);}
+function sortList(k){
+  if(listSortKey===k) listSortDir*=-1; else{listSortKey=k;listSortDir=-1;}
+  const s=[...listAll].sort((a,b)=>{
+    const av=k==='name'?a.name:(a[k]??0);
+    const bv=k==='name'?b.name:(b[k]??0);
+    return typeof av==='string'?av.localeCompare(bv)*listSortDir:(av-bv)*listSortDir;
+  });
+  renderList(s);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ABSTRACT DECODER (inverted index → plaintext)
+// ═══════════════════════════════════════════════════════════════
+function decodeAbstract(inv){
+  if(!inv) return null;
+  const arr=[];
+  Object.entries(inv).forEach(([word,positions])=>{
+    positions.forEach(pos=>arr[pos]=word);
+  });
+  return arr.join(' ');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REDRAW DISPATCHER
+// ═══════════════════════════════════════════════════════════════
+function redraw(){
+  if(vizMode==='geo'){drawGeo();return;}
+  const vis=getVisible();
+  if(!vis.length){showStatus('<span style="color:var(--muted)">No co-authors match filters.</span>');return;}
+  hideStatus();
+  updateVLegend();
+  if(vizMode==='funders') drawFunders();
+  else drawNetwork(vis);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INTER-COLLABORATOR LINKS
+// ═══════════════════════════════════════════════════════════════
+function toggleInterLinks(){
+  interLinksEnabled=!interLinksEnabled;
+  const btn=document.getElementById('interbtn');
+  if(interLinksEnabled){
+    btn.style.borderColor='rgba(171,71,188,0.9)';
+    btn.style.background='rgba(171,71,188,0.28)';
+    btn.style.color='#e1bee7';
+  } else {
+    btn.style.borderColor='rgba(171,71,188,0.6)';
+    btn.style.background='rgba(171,71,188,0.12)';
+    btn.style.color='#ce93d8';
+  }
+  if(coData.length) redraw();
+}
+
+// Build A↔B edges from papers already fetched.
+// Only includes pairs where both A and B are in the visible node set.
+function buildInterLinks(visibleIds){
+  const vis=new Set(visibleIds);
+  const mainId=authorRec.id;
+  const pairMap={};
+
+  getFilteredPapers().forEach(paper=>{
+    const auths=paper.authorships||[];
+    if(!auths.some(a=>a.author?.id===mainId)) return;
+
+    const coOnPaper=auths
+      .map(a=>a.author?.id)
+      .filter(id=>id&&id!==mainId&&vis.has(id));
+
+    if(coOnPaper.length<2) return;
+
+    const frac=1/Math.max(1,coOnPaper.length-1);
+
+    for(let i=0;i<coOnPaper.length;i++){
+      for(let j=i+1;j<coOnPaper.length;j++){
+        const a=coOnPaper[i], b=coOnPaper[j];
+        const key=a<b?`${a}|||${b}`:`${b}|||${a}`;
+        if(!pairMap[key]) pairMap[key]={source:a,target:b,count:0,strength:0,isInter:true};
+        pairMap[key].count++;
+        pairMap[key].strength+=frac;
+      }
+    }
+  });
+
+  return Object.values(pairMap);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOUVAIN COMMUNITY DETECTION
+// Greedy modularity optimisation — pure JS, no CDN needed
+// ═══════════════════════════════════════════════════════════════
+function louvain(nodeIds, edges){
+  const comm={};
+  nodeIds.forEach((id,i)=>comm[id]=i);
+
+  // Weighted adjacency
+  const adj={};
+  nodeIds.forEach(id=>adj[id]={});
+  edges.forEach(({source:a,target:b,strength:w=1})=>{
+    adj[a][b]=(adj[a][b]||0)+w;
+    adj[b][a]=(adj[b][a]||0)+w;
+  });
+
+  const m2=edges.reduce((s,e)=>s+(e.strength||1),0)*2||1;
+  const deg={};
+  nodeIds.forEach(id=>deg[id]=Object.values(adj[id]).reduce((s,w)=>s+w,0));
+
+  // Greedy pass — repeat until stable
+  for(let pass=0;pass<15;pass++){
+    let moved=false;
+    for(const id of nodeIds){
+      const cur=comm[id];
+      const nbComm={};
+      for(const [nb,w] of Object.entries(adj[id])) nbComm[comm[nb]]=(nbComm[comm[nb]]||0)+w;
+
+      let bestC=cur, bestGain=0;
+      for(const [c,wIn] of Object.entries(nbComm)){
+        if(+c===cur) continue;
+        const sumDeg=nodeIds.filter(n=>comm[n]===+c).reduce((s,n)=>s+deg[n],0);
+        const gain=wIn/m2 - deg[id]*sumDeg/(m2*m2);
+        if(gain>bestGain){bestGain=gain;bestC=+c;}
+      }
+      if(bestC!==cur){comm[id]=bestC;moved=true;}
+    }
+    if(!moved) break;
+  }
+
+  // Renumber 0,1,2…
+  const remap={};let cc=0;
+  for(const c of Object.values(comm)) if(remap[c]===undefined) remap[c]=cc++;
+  const out={};
+  nodeIds.forEach(id=>out[id]=remap[comm[id]]);
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NETWORK / CITATIONS DRAW
+// ═══════════════════════════════════════════════════════════════
+function drawNetwork(coauthors){
+  const svg=d3.select('#graph');
+  svg.selectAll('*').remove();
+  const W=document.getElementById('cvs').clientWidth;
+  const H=document.getElementById('cvs').clientHeight;
+  const maxC=coauthors[0]?.count||1;
+  const maxS=d3.max(coauthors,d=>d.strength)||1;
+  const maxCit=d3.max(coauthors,d=>d.citations)||1;
+
+  const rFn=vizMode==='citations'
+    ?d3.scaleSqrt().domain([0,maxCit]).range([4,34]).clamp(true)
+    :d3.scaleSqrt().domain([1,maxC]).range([5,32]).clamp(true);
+
+  const citLinkColor=d3.scaleSequential(d3.interpolateYlOrRd).domain([0,maxS]);
+
+  const ctr={id:authorRec.id,label:authorRec.display_name,type:'center',r:22,count:maxC};
+
+  const authorNodes=coauthors.map(c=>({
+    id:c.id, label:c.name, type:'author',
+    r:vizMode==='citations'?rFn(c.citations||0):rFn(c.count),
+    count:c.count, strength:c.strength, cluster:c.cluster,
+    avgYear:c.avgYear, citations:c.citations,
+    country:c.country, institution:c.institution
+  }));
+
+  const nodes=[ctr,...authorNodes];
+
+  const starLinks=coauthors.map(c=>({
+    source:authorRec.id, target:c.id,
+    count:c.count, strength:c.strength, isInter:false
+  }));
+
+  const interLinks=interLinksEnabled
+    ? buildInterLinks(coauthors.map(c=>c.id))
+    : [];
+
+  // ── Cap total links to maxLinks (keep strongest first) ──
+  let cappedStar=[...starLinks].sort((a,b)=>b.strength-a.strength);
+  let cappedInter=[...interLinks].sort((a,b)=>b.strength-a.strength);
+  if(interLinksEnabled && interLinks.length){
+    const interBudget=Math.min(cappedInter.length, Math.floor(maxLinks*0.65));
+    const starBudget=Math.min(cappedStar.length, maxLinks-interBudget);
+    cappedInter=cappedInter.slice(0,interBudget);
+    cappedStar=cappedStar.slice(0,starBudget);
+  } else {
+    cappedStar=cappedStar.slice(0,maxLinks);
+    cappedInter=[];
+  }
+
+  const maxInterS=cappedInter.length ? d3.max(cappedInter,d=>d.strength)||1 : 1;
+  const links=[...cappedStar,...cappedInter];
+
+  // ── Louvain uses capped inter-links (same subset as rendered) ──
+  if(interLinksEnabled && cappedInter.length){
+    const nodeIds=coauthors.map(c=>c.id);
+    const commMap=louvain(nodeIds, cappedInter);
+    const numComm=Math.max(...Object.values(commMap))+1;
+
+    // Place each community in its own sector of a ring
+    const R=Math.min(W,H)*0.33;
+    authorNodes.forEach(n=>{
+      const c=commMap[n.id]??0;
+      const angle=(c/numComm)*2*Math.PI - Math.PI/2;
+      n.x=W/2 + Math.cos(angle)*R + (Math.random()-0.5)*50;
+      n.y=H/2 + Math.sin(angle)*R + (Math.random()-0.5)*50;
+    });
+    ctr.x=W/2; ctr.y=H/2;
+  }
+
+  // ── Degree count (for FA2-style repulsion scaling) ──
+  const degMap={};
+  nodes.forEach(n=>degMap[n.id]=0);
+  links.forEach(l=>{
+    const s=l.source?.id||l.source;
+    const t=l.target?.id||l.target;
+    if(s in degMap) degMap[s]++;
+    if(t in degMap) degMap[t]++;
+  });
+
+  if(sim) sim.stop();
+
+  if(interLinksEnabled && cappedInter.length){
+    sim=d3.forceSimulation(nodes)
+      .alphaDecay(0.04)
+      .velocityDecay(0.6)
+      .force('link', d3.forceLink(links).id(d=>d.id)
+        .distance(d=>d.isInter
+          ? 50 + 120*(1 - Math.min(d.strength/maxInterS,1))
+          : 180 + 120*(1 - d.strength/maxS))
+        .strength(d=>d.isInter
+          ? 0.06 + 0.12*(d.strength/maxInterS)
+          : 0.01 + 0.03*(d.strength/maxS)))
+      .force('charge', d3.forceManyBody()
+        .strength(d=>{
+          const k=degMap[d.id]||1;
+          return d.type==='center' ? -3000 : -(200 + k*120 + d.r*15);
+        })
+        .distanceMax(600))
+      .force('center', d3.forceCenter(W/2,H/2).strength(0.03))
+      .force('collision', d3.forceCollide()
+        .radius(d=>d.r+22)
+        .strength(0.9)
+        .iterations(4));
+  } else {
+    sim=d3.forceSimulation(nodes)
+      .alphaDecay(0.04)
+      .velocityDecay(0.55)
+      .force('link', d3.forceLink(links).id(d=>d.id)
+        .distance(d=>55+190*(1-d.strength/maxS))
+        .strength(d=>0.02+0.4*(d.strength/maxS)))
+      .force('charge', d3.forceManyBody()
+        .strength(d=>d.type==='center'?-1800:-80-d.r*4)
+        .distanceMax(800))
+      .force('center', d3.forceCenter(W/2,H/2).strength(0.04))
+      .force('collision', d3.forceCollide().radius(d=>d.r+6).strength(0.7).iterations(2));
+  }
+
+  // Pre-compute layout silently — nodes appear in settled positions from first frame
+  // No viewport clamping: the graph is zoomable/pannable so nodes can live outside the initial view
+  sim.tick(200);
+
+  zoomB=d3.zoom().scaleExtent([0.04,10]).on('zoom',e=>g.attr('transform',e.transform));
+  svg.call(zoomB); svgSel=svg;
+  const g=svg.append('g');
+
+  // Links
+  const lnk=g.append('g').attr('class','links').selectAll('line').data(links).join('line')
+    .attr('stroke',d=>{
+      if(d.isInter) return dark?'rgba(171,71,188,0.75)':'rgba(106,27,154,0.55)';
+      return vizMode==='citations'
+        ? citLinkColor(d.strength)
+        : (dark?'rgba(200,210,255,0.28)':'rgba(60,70,120,0.18)');
+    })
+    .attr('stroke-width',d=>d.isInter
+      ? 0.8+(d.strength/maxInterS)*2.5
+      : 1.2+(d.strength/maxS)*6)
+    .attr('stroke-opacity',d=>d.isInter
+      ? 0.3+(d.strength/maxInterS)*0.5
+      : 0.25+(d.strength/maxS)*0.65)
+    .attr('stroke-dasharray',d=>d.isInter?'3,3':null);
+
+  // Nodes
+  const nd=g.append('g').attr('class','nodes').selectAll('g').data(nodes).join('g')
+    .style('cursor','pointer')
+    .call(d3.drag()
+      .on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;})
+      .on('drag', (e,d)=>{d.fx=e.x;d.fy=e.y;})
+      .on('end',  (e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;})
+    );
+
+  nd.append('circle')
+    .attr('r',d=>d.r)
+    .attr('fill',d=>d.type==='center'?'#fff':COLORS[d.cluster%COLORS.length])
+    .attr('fill-opacity',d=>d.type==='center'?1:0.82)
+    .attr('stroke',d=>d.type==='center'?'var(--accent)':'rgba(255,255,255,0.15)')
+    .attr('stroke-width',d=>d.type==='center'?2.5:0.7);
+
+  const thresh=coauthors.length>80?(coauthors[Math.floor(coauthors.length*0.22)]?.count||1):1;
+  nd.filter(d=>d.type==='center'||(d.type==='author'&&d.count>=thresh))
+    .append('text')
+    .attr('dy',d=>d.r+9*labelScale)
+    .attr('text-anchor','middle')
+    .attr('font-family','IBM Plex Sans,sans-serif')
+    .attr('font-size',d=>`${(d.type==='center'?11:Math.max(7.5,6.5+(d.count/maxC)*5))*labelScale}px`)
+    .attr('fill',dark?'#dde1ec':'#1a1d2e')
+    .attr('pointer-events','none')
+    .text(d=>d.label?.length>24?d.label.slice(0,22)+'…':d.label);
+
+  const tip=document.getElementById('tip');
+  nd.on('mousemove',(e,d)=>{
+    let h=`<strong>${d.label||'—'}</strong>`;
+    if(d.type==='author'){
+      if(d.institution) h+=`<div class="tr" style="color:var(--text2);font-size:10.5px;margin-bottom:2px;white-space:normal;line-height:1.4">${d.institution}</div>`;
+      h+=`<div class="tr">Shared papers: <span class="tv">${d.count}</span></div>`;
+      h+=`<div class="tr">Link strength: <span class="tv">${d.strength?.toFixed(3)}</span></div>`;
+      h+=`<div class="tr">Citations: <span class="tv">${d.citations?d.citations.toLocaleString():'—'}</span></div>`;
+      h+=`<div class="tr">Avg collab year: <span class="tv">${d.avgYear||'—'}</span></div>`;
+      if(d.country) h+=`<div class="tr">Country: <span class="tv">${d.country}</span></div>`;
+      if(interLinksEnabled){
+        // Always use full unfiltered interLinks so count is never affected by maxLinks filter
+        const n=interLinks.filter(l=>{
+          const s=l.source?.id||l.source, t=l.target?.id||l.target;
+          return s===d.id||t===d.id;
+        }).length;
+        if(n>0) h+=`<div class="tr">Co-author connections: <span class="tv" style="color:rgba(171,71,188,0.9)">${n}</span></div>`;
+      }
+      h+=`<div class="tr">Cluster: <span class="tv" style="color:${COLORS[d.cluster%COLORS.length]}">${window._cn?.[d.cluster]||`Cluster ${d.cluster+1}`}</span></div>`;
+      h+=`<div class="tr" style="margin-top:3px;color:var(--muted);font-size:10px">Click to highlight · Right-click for OpenAlex ↗</div>`;
+    } else {
+      const inst=authorRec.last_known_institutions?.[0]?.display_name;
+      const orcid=authorRec.orcid?.replace('https://orcid.org/','');
+      const country=authorRec.last_known_institutions?.[0]?.country_code;
+      if(inst) h+=`<div class="tr" style="color:var(--text2);font-size:10.5px;margin-bottom:3px;white-space:normal;line-height:1.4">${inst}${country?' · '+country:''}</div>`;
+      if(orcid) h+=`<div class="tr">ORCID: <span class="tv" style="font-family:'IBM Plex Mono',monospace;font-size:10px">${orcid}</span></div>`;
+      h+=`<div class="tr">Publications: <span class="tv">${(authorRec.works_count||0).toLocaleString()}</span></div>`;
+      h+=`<div class="tr">Citations: <span class="tv">${(authorRec.cited_by_count||0).toLocaleString()}</span></div>`;
+      if(authorRec.summary_stats?.h_index) h+=`<div class="tr">h-index: <span class="tv">${authorRec.summary_stats.h_index}</span></div>`;
+      if(authorRec.summary_stats?.['2yr_mean_citedness']) h+=`<div class="tr">2yr mean citedness: <span class="tv">${authorRec.summary_stats['2yr_mean_citedness'].toFixed(2)}</span></div>`;
+      // Total co-author links — always unfiltered
+      h+=`<div class="tr">Total co-authors: <span class="tv">${coData.length.toLocaleString()}</span></div>`;
+      if(interLinksEnabled && interLinks.length)
+        h+=`<div class="tr">Total co-links: <span class="tv" style="color:rgba(171,71,188,0.9)">${interLinks.length.toLocaleString()}</span></div>`;
+      h+=`<div class="tr" style="margin-top:3px;color:var(--muted);font-size:10px">Click to deselect · Right-click for OpenAlex ↗</div>`;
+    }
+    tip.innerHTML=h; tip.style.display='block';
+    tip.style.left=(e.clientX+14)+'px'; tip.style.top=(e.clientY-10)+'px';
+  }).on('mouseleave',()=>tip.style.display='none')
+    .on('click',(e,d)=>{
+      e.stopPropagation();
+      if(d.type==='center'){
+        // Click center = deselect everything
+        deselAll();
+      } else {
+        selNode(d.id);
+      }
+    })
+    .on('contextmenu',(e,d)=>{
+      e.preventDefault();
+      if(d.id) window.open(d.id,'_blank');
+    });
+
+  sim.on('tick',()=>{
+    lnk.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+        .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    nd.attr('transform',d=>`translate(${d.x},${d.y})`);
+  });
+
+  // Paint pre-computed positions immediately so graph appears stable from first frame
+  lnk.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+     .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+  nd.attr('transform',d=>`translate(${d.x},${d.y})`);
+  // Restart at very low alpha for minor final settling only
+  sim.alpha(0.06).alphaTarget(0).restart();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FUNDER NETWORK
+// ═══════════════════════════════════════════════════════════════
+function drawFunders(){
+  const svg=d3.select('#graph');
+  svg.selectAll('*').remove();
+  const W=document.getElementById('cvs').clientWidth;
+  const H=document.getElementById('cvs').clientHeight;
+
+  // Aggregate funders from awards field
+  const fmap={};
+  getFilteredPapers().forEach(p=>{
+    const awards=p.awards||p.grants||[];
+    awards.forEach(aw=>{
+      const fn=aw.funder_display_name||aw.funder;
+      if(!fn) return;
+      if(!fmap[fn]) fmap[fn]={name:fn,count:0,papers:[]};
+      fmap[fn].count++;
+      if(p.title) fmap[fn].papers.push(p.title.slice(0,60));
+    });
+  });
+
+  const funders=Object.values(fmap).sort((a,b)=>b.count-a.count);
+
+  if(!funders.length){
+    showStatus('<span style="color:var(--muted)">No funder data found in these publications.<br><span style="font-size:11px">OpenAlex funding coverage varies by field and era.</span></span>');
+    return;
+  }
+
+  hideStatus();
+  const maxC=funders[0]?.count||1;
+  const rSc=d3.scaleSqrt().domain([1,maxC]).range([6,38]).clamp(true);
+
+  const ctr={id:'_main',label:authorRec.display_name,type:'center',r:22};
+  const funderSlice=funders.slice(0,Math.min(60,maxLinks));
+  const nodes=[ctr,...funderSlice.map((f,i)=>({
+    id:f.name,label:f.name,type:'funder',r:rSc(f.count),count:f.count,papers:f.papers
+  }))];
+  const links=funderSlice.map(f=>({source:'_main',target:f.name,count:f.count}));
+  const maxL=d3.max(links,d=>d.count)||1;
+
+  if(sim) sim.stop();
+  sim=d3.forceSimulation(nodes)
+    .force('link',d3.forceLink(links).id(d=>d.id)
+      .distance(d=>80+160*(1-d.count/maxL)).strength(0.4))
+    .force('charge',d3.forceManyBody().strength(d=>d.type==='center'?-1200:-80-d.r*2))
+    .force('center',d3.forceCenter(W/2,H/2))
+    .force('collision',d3.forceCollide().radius(d=>d.r+6));
+
+  zoomB=d3.zoom().scaleExtent([0.04,10]).on('zoom',e=>g.attr('transform',e.transform));
+  svg.call(zoomB); svgSel=svg;
+  const g=svg.append('g');
+
+  const lnk=g.append('g').attr('class','links').selectAll('line').data(links).join('line')
+    .attr('stroke',dark?'rgba(255,202,40,0.25)':'rgba(180,140,0,0.2)')
+    .attr('stroke-width',d=>0.5+(d.count/maxL)*4)
+    .attr('stroke-opacity',d=>0.1+(d.count/maxL)*0.7);
+
+  const nd=g.append('g').attr('class','nodes').selectAll('g').data(nodes).join('g')
+    .style('cursor','pointer')
+    .call(d3.drag()
+      .on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;})
+      .on('drag', (e,d)=>{d.fx=e.x;d.fy=e.y;})
+      .on('end',  (e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;})
+    );
+
+  nd.append('circle')
+    .attr('r',d=>d.r)
+    .attr('fill',d=>d.type==='center'?'#fff':'#ffca28')
+    .attr('fill-opacity',d=>d.type==='center'?1:0.75)
+    .attr('stroke',d=>d.type==='center'?'var(--accent)':'rgba(255,255,255,0.15)')
+    .attr('stroke-width',d=>d.type==='center'?2.5:0.7);
+
+  const thresh=funders.length>40?(funders[Math.floor(funders.length*0.25)]?.count||1):1;
+  nd.filter(d=>d.type==='center'||d.count>=thresh)
+    .append('text')
+    .attr('dy',d=>d.r+9*labelScale)
+    .attr('text-anchor','middle')
+    .attr('font-family','IBM Plex Sans,sans-serif')
+    .attr('font-size',d=>`${(d.type==='center'?11:Math.max(7.5,7+(d.count/maxC)*4))*labelScale}px`)
+    .attr('fill',dark?'#dde1ec':'#1a1d2e')
+    .attr('pointer-events','none')
+    .text(d=>d.label?.length>26?d.label.slice(0,24)+'…':d.label);
+
+  const tip=document.getElementById('tip');
+  nd.on('mousemove',(e,d)=>{
+    let h=`<strong>${d.label}</strong>`;
+    if(d.type==='funder'){
+      h+=`<div class="tr">Funded papers: <span class="tv">${d.count}</span></div>`;
+      if(d.papers?.length) h+=`<div class="tr" style="margin-top:3px;max-width:200px;line-height:1.4">${d.papers.slice(0,2).join('<br>')}</div>`;
+    }
+    tip.innerHTML=h; tip.style.display='block';
+    tip.style.left=(e.clientX+14)+'px'; tip.style.top=(e.clientY-10)+'px';
+  }).on('mouseleave',()=>tip.style.display='none');
+
+  sim.on('tick',()=>{
+    lnk.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+        .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    nd.attr('transform',d=>`translate(${d.x},${d.y})`);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GEO MAP VIEW
+// ═══════════════════════════════════════════════════════════════
+async function drawGeo(){
+  const wrap=document.getElementById('geoview');
+
+  // ── Build country data from current coData ──
+  const countryData={};
+  coData.forEach(c=>{
+    if(!c.country) return;
+    const cc=c.country.toUpperCase();
+    if(!countryData[cc]) countryData[cc]={count:0,collaborators:[],clusters:[]};
+    countryData[cc].count+=c.count;
+    countryData[cc].collaborators.push(c.name);
+    countryData[cc].clusters.push(c.cluster);
+  });
+
+  if(!Object.keys(countryData).length){
+    wrap.innerHTML=`<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--muted);text-align:center;font-size:13px;pointer-events:none;">
+      <div class="ring" style="margin:0 auto 10px;opacity:.4;"></div>
+      Geographic data loading…<br><span style="font-size:11px">Returns after network finishes loading.</span>
+    </div>`;
+    return;
+  }
+
+  // ── Fetch world topojson only once ──
+  if(!_worldCache){
+    wrap.innerHTML='<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--muted);font-size:13px;pointer-events:none;"><div class="ring" style="margin:0 auto 10px"></div>Loading world map…</div>';
+    try{
+      const res=await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+      _worldCache=await res.json();
+    }catch(e){
+      wrap.innerHTML='<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--red);font-size:13px;">Could not load world map data.</div>';
+      return;
+    }
+  }
+
+  // ── Load topojson lib only once ──
+  if(!window.topojson){
+    await new Promise((res,rej)=>{
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js';
+      s.onload=res; s.onerror=rej;
+      document.head.appendChild(s);
+    });
+  }
+
+  // Full country name lookup: ISO-3166 numeric → {alpha2, name}
+  const isoMap={
+    4:{a:'AF',n:'Afghanistan'},8:{a:'AL',n:'Albania'},12:{a:'DZ',n:'Algeria'},
+    24:{a:'AO',n:'Angola'},32:{a:'AR',n:'Argentina'},36:{a:'AU',n:'Australia'},
+    40:{a:'AT',n:'Austria'},50:{a:'BD',n:'Bangladesh'},56:{a:'BE',n:'Belgium'},
+    64:{a:'BT',n:'Bhutan'},68:{a:'BO',n:'Bolivia'},76:{a:'BR',n:'Brazil'},
+    100:{a:'BG',n:'Bulgaria'},116:{a:'KH',n:'Cambodia'},120:{a:'CM',n:'Cameroon'},
+    124:{a:'CA',n:'Canada'},152:{a:'CL',n:'Chile'},156:{a:'CN',n:'China'},
+    170:{a:'CO',n:'Colombia'},188:{a:'CR',n:'Costa Rica'},191:{a:'HR',n:'Croatia'},
+    196:{a:'CY',n:'Cyprus'},203:{a:'CZ',n:'Czech Republic'},208:{a:'DK',n:'Denmark'},
+    218:{a:'EC',n:'Ecuador'},818:{a:'EG',n:'Egypt'},231:{a:'ET',n:'Ethiopia'},
+    246:{a:'FI',n:'Finland'},250:{a:'FR',n:'France'},276:{a:'DE',n:'Germany'},
+    288:{a:'GH',n:'Ghana'},300:{a:'GR',n:'Greece'},320:{a:'GT',n:'Guatemala'},
+    332:{a:'HT',n:'Haiti'},356:{a:'IN',n:'India'},360:{a:'ID',n:'Indonesia'},
+    364:{a:'IR',n:'Iran'},368:{a:'IQ',n:'Iraq'},376:{a:'IL',n:'Israel'},
+    380:{a:'IT',n:'Italy'},388:{a:'JM',n:'Jamaica'},392:{a:'JP',n:'Japan'},
+    400:{a:'JO',n:'Jordan'},404:{a:'KE',n:'Kenya'},408:{a:'KP',n:'North Korea'},
+    410:{a:'KR',n:'South Korea'},414:{a:'KW',n:'Kuwait'},418:{a:'LA',n:'Laos'},
+    422:{a:'LB',n:'Lebanon'},428:{a:'LV',n:'Latvia'},440:{a:'LT',n:'Lithuania'},
+    442:{a:'LU',n:'Luxembourg'},434:{a:'LY',n:'Libya'},484:{a:'MX',n:'Mexico'},
+    504:{a:'MA',n:'Morocco'},508:{a:'MZ',n:'Mozambique'},516:{a:'NA',n:'Namibia'},
+    524:{a:'NP',n:'Nepal'},528:{a:'NL',n:'Netherlands'},554:{a:'NZ',n:'New Zealand'},
+    566:{a:'NG',n:'Nigeria'},578:{a:'NO',n:'Norway'},586:{a:'PK',n:'Pakistan'},
+    591:{a:'PA',n:'Panama'},604:{a:'PE',n:'Peru'},608:{a:'PH',n:'Philippines'},
+    616:{a:'PL',n:'Poland'},620:{a:'PT',n:'Portugal'},634:{a:'QA',n:'Qatar'},
+    642:{a:'RO',n:'Romania'},643:{a:'RU',n:'Russia'},646:{a:'RW',n:'Rwanda'},
+    682:{a:'SA',n:'Saudi Arabia'},686:{a:'SN',n:'Senegal'},710:{a:'ZA',n:'South Africa'},
+    724:{a:'ES',n:'Spain'},144:{a:'LK',n:'Sri Lanka'},752:{a:'SE',n:'Sweden'},
+    756:{a:'CH',n:'Switzerland'},760:{a:'SY',n:'Syria'},764:{a:'TH',n:'Thailand'},
+    834:{a:'TZ',n:'Tanzania'},792:{a:'TR',n:'Turkey'},800:{a:'UG',n:'Uganda'},
+    804:{a:'UA',n:'Ukraine'},784:{a:'AE',n:'United Arab Emirates'},
+    826:{a:'GB',n:'United Kingdom'},840:{a:'US',n:'United States'},
+    858:{a:'UY',n:'Uruguay'},862:{a:'VE',n:'Venezuela'},704:{a:'VN',n:'Vietnam'},
+    887:{a:'YE',n:'Yemen'},894:{a:'ZM',n:'Zambia'},716:{a:'ZW',n:'Zimbabwe'},
+    372:{a:'IE',n:'Ireland'},470:{a:'MT',n:'Malta'},703:{a:'SK',n:'Slovakia'},
+    705:{a:'SI',n:'Slovenia'},807:{a:'MK',n:'North Macedonia'},499:{a:'ME',n:'Montenegro'},
+    688:{a:'RS',n:'Serbia'},70:{a:'BA',n:'Bosnia and Herzegovina'},
+    233:{a:'EE',n:'Estonia'},426:{a:'LS',n:'Lesotho'},430:{a:'LR',n:'Liberia'},
+    694:{a:'SL',n:'Sierra Leone'},706:{a:'SO',n:'Somalia'},729:{a:'SD',n:'Sudan'}
+  };
+
+  // ── Render (runs on every filter change, no fetch needed) ──
+  wrap.innerHTML='';
+  const W=wrap.clientWidth, H=wrap.clientHeight;
+  const svg=d3.select(wrap).append('svg').attr('width',W).attr('height',H);
+
+  const countries=topojson.feature(_worldCache,_worldCache.objects.countries);
+  const proj=d3.geoNaturalEarth1().fitSize([W-20,H-20],countries).translate([W/2,H/2]);
+  const path=d3.geoPath().projection(proj);
+
+  const maxCount=d3.max(Object.values(countryData),d=>d.count)||1;
+  const colSc=d3.scaleSequential()
+    .domain([0,maxCount])
+    .interpolator(dark
+      ? d3.interpolate('#1e2130','#4fc3f7')
+      : d3.interpolate('#dde0ee','#1565c0'));
+
+  const zg=svg.append('g');
+  geoZoomB=d3.zoom().scaleExtent([0.5,12]).on('zoom',e=>zg.attr('transform',e.transform));
+  svg.call(geoZoomB);
+
+  const gt=document.getElementById('geotip');
+
+  zg.append('g').selectAll('path').data(countries.features).join('path')
+    .attr('d',path)
+    .attr('fill',f=>{
+      const info=isoMap[+f.id];
+      if(!info) return dark?'#1a1d24':'#d8daea';
+      const cd=countryData[info.a];
+      return cd ? colSc(cd.count) : (dark?'#1a1d24':'#d8daea');
+    })
+    .attr('stroke',dark?'#2a2d38':'#b0b3c5')
+    .attr('stroke-width',0.4)
+    .style('cursor',f=>{
+      const info=isoMap[+f.id];
+      return (info&&countryData[info.a])?'pointer':'default';
+    })
+    .on('mousemove',(ev,f)=>{
+      const info=isoMap[+f.id];
+      if(!info||!countryData[info.a]) return;
+      const cd=countryData[info.a];
+      const names=cd.collaborators.slice(0,5).join(', ')+(cd.collaborators.length>5?` +${cd.collaborators.length-5} more`:'');
+      gt.innerHTML=`<b>${info.n}</b>Collaborators: ${cd.collaborators.length} · Papers: ${cd.count}<br><span style="font-size:10.5px;color:var(--text2)">${names}</span>`;
+      gt.style.display='block';
+      gt.style.left=(ev.clientX+14)+'px';
+      gt.style.top=(ev.clientY-10)+'px';
+    })
+    .on('mouseleave',()=>gt.style.display='none');
+
+  // Colour legend bottom-right
+  const legW=120,legH=10,legX=W-legW-24,legY=H-30;
+  const defs=svg.append('defs');
+  const grad=defs.append('linearGradient').attr('id','geo-grad');
+  grad.append('stop').attr('offset','0%').attr('stop-color',dark?'#1a1d24':'#d8daea');
+  grad.append('stop').attr('offset','100%').attr('stop-color',dark?'#4fc3f7':'#1565c0');
+  svg.append('rect').attr('x',legX).attr('y',legY).attr('width',legW).attr('height',legH)
+    .attr('rx',2).attr('fill','url(#geo-grad)').attr('opacity',0.85);
+  svg.append('text').attr('x',legX).attr('y',legY-4).attr('fill',dark?'#565c78':'#8c90aa').attr('font-size',9).text('fewer');
+  svg.append('text').attr('x',legX+legW).attr('y',legY-4).attr('text-anchor','end').attr('fill',dark?'#565c78':'#8c90aa').attr('font-size',9).text('more');
+
+  svgSel=svg; zoomB=geoZoomB;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NODE SELECTION
+// ═══════════════════════════════════════════════════════════════
+function deselAll(){
+  selId=null;
+  document.querySelectorAll('.ci').forEach(el=>el.classList.remove('sel'));
+  if(vizMode==='geo') return;
+  d3.selectAll('.nodes g circle').attr('fill-opacity',d=>d.type==='center'?1:0.82);
+  d3.selectAll('.nodes g text').attr('opacity',1);
+  const ms=d3.max(d3.selectAll('.links line').data(),d=>d.strength)||1;
+  d3.selectAll('.links line').attr('stroke-opacity',d=>
+    d.isInter ? 0.3+(d.strength/ms)*0.5 : 0.25+(d.strength/ms)*0.65);
+}
+
+function selNode(id){
+  selId=id;
+  document.querySelectorAll('.ci').forEach(el=>el.classList.toggle('sel',el.dataset.id===id));
+  if(vizMode==='geo') return;
+  // Dim all nodes except selected
+  d3.selectAll('.nodes g circle').attr('fill-opacity',d=>
+    (!d.id||d.id===id||d.id===authorRec?.id) ? (d.type==='center'?1:0.82) : 0.08);
+  d3.selectAll('.nodes g text').attr('opacity',d=>
+    (!d.id||d.id===id||d.id===authorRec?.id) ? 1 : 0.08);
+  // Highlight links connected to selected node in either direction; dim everything else
+  d3.selectAll('.links line').attr('stroke-opacity',d=>{
+    const s=d.source?.id||d.source, t=d.target?.id||d.target;
+    return (s===id||t===id) ? 0.9 : 0.02;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ZOOM
+// ═══════════════════════════════════════════════════════════════
+function zBy(f){if(svgSel&&zoomB)svgSel.transition().duration(200).call(zoomB.scaleBy,f);}
+function zReset(){if(svgSel&&zoomB)svgSel.transition().duration(300).call(zoomB.transform,d3.zoomIdentity);}
+
+// ═══════════════════════════════════════════════════════════════
+// DESELECT ON BG CLICK
+// ═══════════════════════════════════════════════════════════════
+document.getElementById('cvs').addEventListener('click',e=>{
+  if(e.target.tagName.toLowerCase()==='svg') deselAll();
+});
+
+document.getElementById('qinput').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
+
+// ═══════════════════════════════════════════════════════════════
+// WELCOME MODAL
+// ═══════════════════════════════════════════════════════════════
+function showModal(){
+  const bg=document.getElementById('modal-bg');
+  if(bg) bg.style.display='flex';
+  // Build email at runtime so scrapers/Cloudflare can't mangle it
+  const cl=document.getElementById('contact-link');
+  if(cl&&!cl.innerHTML){
+    const u='joebarnier1',d='gmail.com';
+    cl.innerHTML=`Contact <a href="mailto:${u}@${d}" style="color:var(--accent);text-decoration:none;">${u}@${d}</a>`;
+  }
+}
+function hideModal(){
+  const bg=document.getElementById('modal-bg');
+  bg.style.display='none';
+  if(document.getElementById('modal-skip').checked){
+    try{localStorage.setItem('sg_skip_welcome','1');}catch(e){}
+  }
+}
+document.addEventListener('keydown',e=>{
+  const bg=document.getElementById('modal-bg');
+  if(e.key==='Escape'&&bg&&bg.style.display!=='none') hideModal();
+});
+// Show on load unless user dismissed permanently — must wait for modal HTML to exist
+document.addEventListener('DOMContentLoaded',()=>{
+  // Pre-build contact link so it's ready whether modal auto-opens or is clicked open
+  const cl=document.getElementById('contact-link');
+  if(cl){const u='joebarnier1',d='gmail.com';cl.innerHTML=`Contact <a href="mailto:${u}@${d}" style="color:var(--accent);text-decoration:none;">${u}@${d}</a>`;}
+  let skip=false;
+  try{skip=localStorage.getItem('sg_skip_welcome')==='1';}catch(e){}
+  if(!skip) showModal();
+});
+</script>
+
+<!-- ═══════════════ WELCOME MODAL ═══════════════ -->
+<div id="modal-bg" style="display:none;" onclick="if(event.target===this)hideModal()">
+  <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+
+    <!-- Header -->
+    <div class="modal-head">
+      <svg width="48" height="48" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+        <line x1="15" y1="15" x2="5"  y2="7"  stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
+        <line x1="15" y1="15" x2="25" y2="7"  stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
+        <line x1="15" y1="15" x2="25" y2="23" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
+        <line x1="15" y1="15" x2="5"  y2="23" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
+        <line x1="15" y1="15" x2="15" y2="3"  stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
+        <line x1="5"  y1="7"  x2="25" y2="7"  stroke="#ab47bc" stroke-width="1"   stroke-opacity="0.55" stroke-dasharray="2,2"/>
+        <line x1="25" y1="7"  x2="25" y2="23" stroke="#ab47bc" stroke-width="1"   stroke-opacity="0.55" stroke-dasharray="2,2"/>
+        <circle cx="5"  cy="7"  r="3" fill="#4fc3f7" fill-opacity="0.9"/>
+        <circle cx="25" cy="7"  r="3" fill="#66bb6a" fill-opacity="0.9"/>
+        <circle cx="25" cy="23" r="3" fill="#ffca28" fill-opacity="0.9"/>
+        <circle cx="5"  cy="23" r="3" fill="#ef5350" fill-opacity="0.9"/>
+        <circle cx="15" cy="3"  r="3" fill="#ab47bc" fill-opacity="0.9"/>
+        <circle cx="15" cy="15" r="5" fill="white"   stroke="#4fc3f7" stroke-width="1.5"/>
+      </svg>
+      <div class="modal-head-text">
+        <h1 id="modal-title">Welcome to Scholarnet</h1>
+        <p>A research collaboration explorer powered by <strong>OpenAlex</strong>, the free and open academic publication database.<br>
+        Search any researcher by name or ORCID to instantly map their co-authorship universe.</p>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="modal-body">
+      <div class="modal-grid">
+
+        <div class="mcard">
+          <h3><span>🔍</span> Search</h3>
+          <p>Type a <strong>researcher name</strong> or paste an <strong>ORCID iD</strong> and hit <em>Visualize</em>. Scholarnet fetches all their publications and builds a live network of collaborators — no account needed.</p>
+        </div>
+
+        <div class="mcard">
+          <h3><span>🖱</span> Interaction</h3>
+          <p><strong>Click</strong> any node to highlight it and all its connections.<br>
+          <strong>Right-click</strong> a node to open the author's OpenAlex profile.<br>
+          <strong>Drag</strong> nodes to reposition. <strong>Scroll</strong> to zoom.<br>
+          <strong>Click the canvas</strong> background to deselect.</p>
+        </div>
+
+        <div class="mcard">
+          <h3><span>🎛</span> Filters</h3>
+          <p><strong>By default only the top ~100 strongest collaborations are shown</strong> to keep the graph readable — the threshold is set automatically. Adjust in the sidebar:<br><br>
+          • <strong>Min. shared papers</strong> — lower to reveal more collaborators.<br>
+          • <strong>Max links shown</strong> — limit connections drawn for clarity.<br>
+          • <strong>Year range</strong> &amp; <strong>Work type</strong> — narrow by time or publication type.</p>
+        </div>
+
+        <div class="mcard">
+          <h3><span>🗺</span> Views</h3>
+          <p><strong>Network</strong> — co-author graph sized by shared papers.<br>
+          <strong>Citations</strong> — nodes sized by co-author total citations.<br>
+          <strong>Funders</strong> — funding agency connections.<br>
+          <strong>Geo</strong> — world map of collaboration countries.</p>
+        </div>
+
+        <div class="mcard" style="grid-column:1/-1;border-left:3px solid rgba(171,71,188,0.7);">
+          <h3 style="color:#ce93d8;"><span>★</span> Co-links</h3>
+          <p>Reveals <strong>direct connections between co-authors themselves</strong>, not just to the searched author. Uses <strong>community detection</strong> to cluster research groups visually — turning a star graph into a <strong>research community map</strong>. Toggle with the <span style="color:#ce93d8;font-weight:600;">★ Co-links</span> button in the top-right toolbar. Purple dashed lines = co-author links. Lower <em>Max links shown</em> in the sidebar for cleaner cluster separation.</p>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="modal-footer" style="flex-direction:column;align-items:stretch;gap:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <label>
+          <input type="checkbox" id="modal-skip">
+          Don't show this again
+        </label>
+        <button class="modal-btn" onclick="hideModal()">Start Exploring →</button>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;">
+        Questions or feedback? <span id="contact-link"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
