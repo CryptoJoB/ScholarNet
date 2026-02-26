@@ -253,6 +253,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
 #tip strong{color:var(--accent);display:block;margin-bottom:2px;font-size:12.5px;}
 .tr{color:var(--text2);font-size:11px;}.tv{color:var(--text);}
 </style>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-GQZD3LZ87H"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-GQZD3LZ87H');
+</script>
 </head>
 <body>
 
@@ -452,6 +460,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let allPapers=[], authorRec=null, coData=[];
+let topicColorMap={}; // topic name → stable cluster index, built once per search
 let geoEnrich={}; // permanent country cache — never wiped by filters
 let vizMode='network', mainView='graph', searchMode='name';
 let minLinks=5, yearMin=1950, yearMax=2025, labelScale=1.0;
@@ -540,7 +549,7 @@ function updateVLegend(){
 // ═══════════════════════════════════════════════════════════════
 // CONTROLS
 // ═══════════════════════════════════════════════════════════════
-function onML(v){minLinks=+v;document.getElementById('ml-v').textContent=v;if(coData.length){updateStats();redraw();}}
+function onML(v){minLinks=+v;document.getElementById('ml-v').textContent=v;if(coData.length){updateStats();redraw();fetchMissingCitations();}}
 function onMaxLinks(v){maxLinks=+v;document.getElementById('mx-v').textContent=(+v).toLocaleString();if(coData.length)redraw();}
 let _yrTimer=null;
 function onYr(){
@@ -558,7 +567,7 @@ function onYr(){
   // Debounce: wait 180ms after last slider move before running expensive rebuild
   clearTimeout(_yrTimer);
   _yrTimer=setTimeout(()=>{
-    if(coData.length){buildCoData();updateStats();buildSidebar();buildListData();drawTrendChart();buildOABar();redraw();}
+    if(coData.length){buildCoData();updateStats();buildSidebar();buildListData();drawTrendChart();buildOABar();redraw();fetchMissingCitations();}
   },180);
 }
 
@@ -649,6 +658,17 @@ async function fetchCoauthorCitations(authors){
   }catch(e){/*non-critical*/}
 }
 
+// Fetch citations for any visible co-authors not yet enriched.
+// Called after filter changes that may reveal new authors.
+async function fetchMissingCitations(){
+  const missing=getVisible().filter(c=>!c.citations&&!geoEnrich[c.id]);
+  if(!missing.length) return;
+  // Batch into chunks of 100 (API limit)
+  for(let i=0;i<missing.length;i+=100){
+    await fetchCoauthorCitations(missing.slice(i,i+100));
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // MAIN SEARCH
 // ═══════════════════════════════════════════════════════════════
@@ -659,7 +679,7 @@ async function doSearch(){
   btn.disabled=true; btn.textContent='Loading…';
   showStatus('<div class="ring"></div>Searching OpenAlex…');
   document.getElementById('graph').innerHTML='';
-  allPapers=[]; coData=[]; geoEnrich={}; _worldCache=null; enabledInstitutions=null;
+  allPapers=[]; coData=[]; geoEnrich={}; _worldCache=null; enabledInstitutions=null; topicColorMap={};
 
   try{
     let url;
@@ -677,6 +697,13 @@ async function doSearch(){
 
     allPapers=await fetchAllWorks(authorId);
     if(!allPapers.length){showStatus('<span style="color:var(--red)">No publications found.</span>');return;}
+
+    // Build stable topic→colour map from ALL papers once — never recomputed on filter changes.
+    // Topics are ordered by frequency (most common first) to match the original colour assignment,
+    // then the map is frozen so colours never shift when filters are applied.
+    const topicFreq={};
+    allPapers.forEach(p=>{ const t=p.topics?.[0]?.display_name; if(t) topicFreq[t]=(topicFreq[t]||0)+1; });
+    Object.keys(topicFreq).sort((a,b)=>topicFreq[b]-topicFreq[a]).forEach((t,i)=>{ topicColorMap[t]=i%COLORS.length; });
 
     initYearSliders();
     buildTypeFilters();
@@ -764,7 +791,7 @@ function normaliseType(t){
 function toggleType(t,el){
   if(enabledTypes.has(t)) enabledTypes.delete(t); else enabledTypes.add(t);
   el.classList.toggle('on',enabledTypes.has(t));
-  buildCoData(); updateStats(); buildSidebar(false); buildListData(); drawTrendChart(); buildOABar(); redraw();
+  buildCoData(); updateStats(); buildSidebar(false); buildListData(); drawTrendChart(); buildOABar(); redraw(); fetchMissingCitations();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -772,51 +799,74 @@ function toggleType(t,el){
 // ═══════════════════════════════════════════════════════════════
 function buildCoData(){
   const mainId=authorRec.id;
-  const freq={};
 
-  // Snapshot previously fetched enrichment data so we don't lose it on filter rebuilds
+  // Snapshot enrichment from current coData before rebuilding
   const prevEnrich={};
   coData.forEach(c=>{
     prevEnrich[c.id]={citations:c.citations||0,country:c.country||null,institution:c.institution||null};
   });
 
+  // ── Pass 1: build full co-author set from ALL papers ──
+  // coData always contains every co-author regardless of active filters.
+  // This prevents authors from disappearing from getFilterVisible/getClusterFilteredPapers
+  // when year/type filters are applied, which caused the missing-papers bug.
+  const allFreq={};
+  allPapers.forEach(paper=>{
+    const auths=paper.authorships||[];
+    if(!auths.some(a=>a.author?.id===mainId)) return;
+    auths.forEach(a=>{
+      const id=a.author?.id,nm=a.author?.display_name;
+      if(!id||!nm||id===mainId) return;
+      if(!allFreq[id]){
+        const instFromAuth=a.institutions?.[0]?.display_name||null;
+        allFreq[id]={id,name:nm,count:0,strength:0,yearSum:0,yc:0,
+          citations:0,country:null,institution:instFromAuth};
+      }
+    });
+  });
+
+  // ── Pass 2: compute filtered counts from active year+type filters ──
+  // count/strength/avgYear reflect only the filtered papers so the
+  // min-shared-papers slider and stats respond to year/type filters correctly.
+  const filtFreq={};
   getFilteredPapers().forEach(paper=>{
     const auths=paper.authorships||[];
     if(!auths.some(a=>a.author?.id===mainId)) return;
     const co=auths.length-1;
     const yr=paper.publication_year;
-
     auths.forEach(a=>{
-      const id=a.author?.id,nm=a.author?.display_name;
-      if(!id||!nm||id===mainId) return;
-      if(!freq[id]){
-        // Seed institution from authorship object if available (no extra fetch needed)
-        const instFromAuth=a.institutions?.[0]?.display_name||null;
-        freq[id]={id,name:nm,count:0,strength:0,yearSum:0,yc:0,
-          citations:0,country:null,institution:instFromAuth};
-      }
-      freq[id].count++;
-      freq[id].strength+=co>0?1/co:1;
-      if(yr){freq[id].yearSum+=yr;freq[id].yc++;}
+      const id=a.author?.id;
+      if(!id||id===mainId||!allFreq[id]) return;
+      if(!filtFreq[id]) filtFreq[id]={count:0,strength:0,yearSum:0,yc:0};
+      filtFreq[id].count++;
+      filtFreq[id].strength+=co>0?1/co:1;
+      if(yr){filtFreq[id].yearSum+=yr;filtFreq[id].yc++;}
     });
   });
 
-  coData=Object.values(freq).sort((a,b)=>b.count-a.count);
+  // Merge: every author from allPapers is present; filtered stats applied where available
+  coData=Object.values(allFreq).map(c=>{
+    const f=filtFreq[c.id];
+    return {...c,
+      count:f?f.count:0,
+      strength:f?f.strength:0,
+      avgYear:f&&f.yc?Math.round(f.yearSum/f.yc):null
+    };
+  }).sort((a,b)=>b.count-a.count);
+
+  // Restore enrichment
   coData.forEach(c=>{
-    c.avgYear=c.yc?Math.round(c.yearSum/c.yc):null;
-    // Restore from prevEnrich (within-session filter rebuilds)
     const prev=prevEnrich[c.id];
     if(prev){
       if(prev.citations) c.citations=prev.citations;
       if(prev.country)   c.country=prev.country;
       if(prev.institution) c.institution=prev.institution;
     }
-    // Also restore from permanent geoEnrich cache (survives across filter rebuilds)
     const geo=geoEnrich[c.id];
     if(geo){
-      if(!c.country)      c.country=geo.country;
-      if(!c.institution)  c.institution=geo.institution;
-      if(!c.citations)    c.citations=geo.citations;
+      if(!c.country)     c.country=geo.country;
+      if(!c.institution) c.institution=geo.institution;
+      if(!c.citations)   c.citations=geo.citations;
     }
   });
 
@@ -824,7 +874,10 @@ function buildCoData(){
 
   const mx=coData.length?coData[0].count:1;
   const sl=document.getElementById('ml-s');
-  sl.max=mx; if(+sl.value>mx){sl.value=5;minLinks=5;document.getElementById('ml-v').textContent=5;}
+  sl.max=mx;
+  if(+sl.value>mx){
+    sl.value=1; minLinks=1; document.getElementById('ml-v').textContent=1;
+  }
 
   enabledClusters=new Set(coData.map(c=>c.cluster));
 }
@@ -838,12 +891,26 @@ function getFilteredPapers(){
   });
 }
 
+// Co-authors that pass institution+cluster filters regardless of minLinks.
+// Used by getClusterFilteredPapers so paper/stat counts are never affected
+// by the graph display threshold.
+function getFilterVisible(){
+  return coData.filter(c=>{
+    if(!enabledClusters.has(c.cluster)) return false;
+    if(enabledInstitutions){
+      if(c.institution&&!enabledInstitutions.has(c.institution)) return false;
+      if(!c.institution&&!enabledInstitutions.has(UNKNOWN_INST)) return false;
+    }
+    return true;
+  });
+}
+
 function getClusterFilteredPapers(){
-  const vis=getVisible();
   const allClustersOn=coData.every(c=>enabledClusters.has(c.cluster));
   const allInstsOn=!enabledInstitutions||coData.every(c=>!c.institution||enabledInstitutions.has(c.institution));
   if(allClustersOn&&allInstsOn) return getFilteredPapers();
-  const visIds=new Set(vis.map(c=>c.id));
+  // Use getFilterVisible (no minLinks) not getVisible so minLinks never affects paper counts
+  const visIds=new Set(getFilterVisible().map(c=>c.id));
   const mainId=authorRec?.id;
   return getFilteredPapers().filter(p=>{
     const auths=p.authorships||[];
@@ -857,7 +924,8 @@ function getClusterFilteredPapers(){
 function assignClusters(){
   const mainId=authorRec.id;
   const at={};
-  getFilteredPapers().forEach(p=>{
+  // Use allPapers so every co-author gets a topic regardless of active filters
+  allPapers.forEach(p=>{
     const auths=p.authorships||[];
     if(!auths.some(a=>a.author?.id===mainId)) return;
     const topic=p.topics?.[0]?.display_name;
@@ -869,13 +937,21 @@ function assignClusters(){
       at[id][topic]=(at[id][topic]||0)+1;
     });
   });
-  const tc={},cn={};let cc=0;
+
+  const cn={};
   coData.forEach(c=>{
     const topics=at[c.id]||{};
     const top=Object.entries(topics).sort((a,b)=>b[1]-a[1])[0]?.[0];
-    if(top&&tc[top]!==undefined){c.cluster=tc[top];c.clusterTopic=top;}
-    else if(top){c.cluster=cc%COLORS.length;tc[top]=c.cluster;cn[c.cluster]=top;c.clusterTopic=top;cc++;}
-    else{c.cluster=cc%COLORS.length;cc++;}
+    if(top){
+      c.cluster=topicColorMap[top]; // stable lookup — never changes after search
+      c.clusterTopic=top;
+      cn[c.cluster]=top;
+    } else {
+      // No topic — stable hash of author ID so colour doesn't change with filters
+      let h=0;
+      for(let i=0;i<c.id.length;i++) h=(h*31+c.id.charCodeAt(i))>>>0;
+      c.cluster=h%COLORS.length;
+    }
   });
   window._cn=cn;
 }
@@ -885,21 +961,19 @@ function assignClusters(){
 // ═══════════════════════════════════════════════════════════════
 function updateStats(){
   const vis=getVisible().length;
-  const filtered=getClusterFilteredPapers();
-  const isFiltered=filtered.length<allPapers.length;
-  const filteredCites=filtered.reduce((s,p)=>s+(p.cited_by_count||0),0);
-
-  // Compute h-index from filtered papers
-  const citeCounts=filtered.map(p=>p.cited_by_count||0).sort((a,b)=>b-a);
-  let hIndex=0;
-  for(let i=0;i<citeCounts.length;i++){if(citeCounts[i]>=i+1)hIndex=i+1;else break;}
-
-  // 2yr mean citedness — average citations of filtered papers from last 2 years
-  const nowY=new Date().getFullYear();
-  const recent=filtered.filter(p=>p.publication_year&&p.publication_year>=nowY-2);
-  const meanCit2yr=recent.length
-    ? (recent.reduce((s,p)=>s+(p.cited_by_count||0),0)/recent.length).toFixed(2)
-    : '—';
+  // Total passing institution+cluster filters regardless of minLinks threshold
+  const totalVisible=coData.filter(c=>{
+    if(!enabledClusters.has(c.cluster)) return false;
+    if(enabledInstitutions){
+      if(c.institution&&!enabledInstitutions.has(c.institution)) return false;
+      if(!c.institution&&!enabledInstitutions.has(UNKNOWN_INST)) return false;
+    }
+    return true;
+  }).length;
+  // Use full filter chain so institution + cluster filters affect paper/citation counts
+  const basePapers=getClusterFilteredPapers();
+  const isFiltered=basePapers.length<allPapers.length;
+  const filteredCites=basePapers.reduce((s,p)=>s+(p.cited_by_count||0),0);
 
   const orcidLine=authorRec.orcid
     ?`<div class="srow"><span class="slbl">ORCID</span><span class="sval" style="font-size:10px">${authorRec.orcid.replace('https://orcid.org/','')}</span></div>`:'';
@@ -913,11 +987,9 @@ function updateStats(){
     ${orcidLine}
     ${instLine}
     <div class="srow"><span class="slbl">Total publications</span><span class="sval">${(authorRec.works_count||allPapers.length).toLocaleString()}</span></div>
-    <div class="srow"><span class="slbl">${isFiltered?'Filtered papers':'Loaded papers'}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${filtered.length.toLocaleString()}${isFiltered?` / ${allPapers.length}`:''}</span></div>
+    <div class="srow"><span class="slbl">${isFiltered?'Filtered papers':'Loaded papers'}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${basePapers.length.toLocaleString()}${isFiltered?` / ${allPapers.length}`:''}</span></div>
     <div class="srow"><span class="slbl">${isFiltered?'Filtered citations':'Total citations'}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${isFiltered?filteredCites.toLocaleString():(authorRec.cited_by_count||0).toLocaleString()}</span></div>
-    <div class="srow"><span class="slbl">h-index${isFiltered?' (filtered)':''}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${hIndex||'—'}</span></div>
-    <div class="srow"><span class="slbl">2yr mean citedness${isFiltered?' (filtered)':''}</span><span class="sval" style="${isFiltered?'color:var(--yellow)':''}">${meanCit2yr}</span></div>
-    <div class="srow"><span class="slbl">Unique co-authors</span><span class="sval">${coData.length}</span></div>
+    <div class="srow"><span class="slbl">Unique co-authors</span><span class="sval">${totalVisible}</span></div>
     <div class="srow"><span class="slbl">Shown (≥${minLinks} papers)</span><span class="sval">${vis}</span></div>
   `;
 }
@@ -977,7 +1049,7 @@ function toggleTrend(){
     trendMode==='works'?'Publications per year ':'Citations per year ';
   document.getElementById('trend-mode-lbl').textContent=
     trendMode==='works'?'switch to citations →':'switch to publications →';
-  renderTrendFromPapers(getFilteredPapers());
+  renderTrendFromPapers(getClusterFilteredPapers());
 }
 
 function renderTrendFromPapers(papers){
@@ -1082,7 +1154,7 @@ function buildClusterFilters(){
 
 function onCFToggle(){
   enabledClusters=new Set([...document.querySelectorAll('#cfilters input:checked')].map(el=>+el.dataset.cluster));
-  updateStats(); buildSidebar(false); buildListData(); drawTrendChart(); buildOABar(); redraw();
+  updateStats(); buildSidebar(false); buildListData(); drawTrendChart(); buildOABar(); redraw(); fetchMissingCitations();
 }
 
 function toggleAllClusters(state){
@@ -1395,21 +1467,71 @@ function drawNetwork(coauthors){
   const maxInterS=cappedInter.length ? d3.max(cappedInter,d=>d.strength)||1 : 1;
   const links=[...cappedStar,...cappedInter];
 
-  // ── Louvain uses capped inter-links (same subset as rendered) ──
+  // ── Determine cluster assignments for ALL nodes ──
+  // When Co-links on: use Louvain on inter-links
+  // When Co-links off: use topic-based cluster from coData
+  let clusterMap={};
+  let numClusters=1;
+
   if(interLinksEnabled && cappedInter.length){
     const nodeIds=coauthors.map(c=>c.id);
     const commMap=louvain(nodeIds, cappedInter);
-    const numComm=Math.max(...Object.values(commMap))+1;
+    numClusters=Math.max(...Object.values(commMap))+1;
+    authorNodes.forEach(n=>{ clusterMap[n.id]=commMap[n.id]??0; });
+  } else {
+    // Use topic cluster from coData
+    const clusterSet=new Set(authorNodes.map(n=>n.cluster));
+    const clusterList=[...clusterSet].sort((a,b)=>a-b);
+    numClusters=clusterList.length;
+    const clusterIndex={};
+    clusterList.forEach((c,i)=>clusterIndex[c]=i);
+    authorNodes.forEach(n=>{ clusterMap[n.id]=clusterIndex[n.cluster]??0; });
+  }
 
-    // Place each community in its own sector of a ring
-    const R=Math.min(W,H)*0.33;
+  // ── Pre-position: place each cluster in its own sector ──
+  // Sector seeding ensures same-cluster nodes start close together
+  // so the force sim only needs to refine, not fight random positions
+  const R=Math.min(W,H)*0.32;
+  const clusterCounts={};
+  authorNodes.forEach(n=>{ const c=clusterMap[n.id]; clusterCounts[c]=(clusterCounts[c]||0)+1; });
+
+  const clusterIdx={};
+  authorNodes.forEach(n=>{
+    const c=clusterMap[n.id];
+    if(!clusterIdx[c]) clusterIdx[c]=0;
+    const totalInCluster=clusterCounts[c];
+    const posInCluster=clusterIdx[c]++;
+
+    // Sector centre angle for this cluster
+    const sectorAngle=(c/numClusters)*2*Math.PI - Math.PI/2;
+    // Spread nodes within their sector (±sectorWidth/2)
+    const sectorWidth=(2*Math.PI/numClusters)*0.75;
+    const spread=totalInCluster>1?(posInCluster/(totalInCluster-1)-0.5)*sectorWidth:0;
+    const angle=sectorAngle+spread;
+    // Vary radius slightly so nodes don't all sit on the same ring
+    const r=R*(0.7+0.5*(posInCluster/Math.max(totalInCluster-1,1)));
+    n.x=W/2 + Math.cos(angle)*r;
+    n.y=H/2 + Math.sin(angle)*r;
+  });
+  ctr.x=W/2; ctr.y=H/2;
+
+  // ── Cluster centroid attraction force ──
+  // Continuously pulls nodes toward their cluster's current centroid
+  // strength scales with number of clusters so small graphs aren't over-constrained
+  const clusterForceStrength=Math.min(0.12, 0.04*Math.sqrt(numClusters));
+  function clusterForce(alpha){
+    // Compute current centroids
+    const cx={}, cy={}, cn={};
     authorNodes.forEach(n=>{
-      const c=commMap[n.id]??0;
-      const angle=(c/numComm)*2*Math.PI - Math.PI/2;
-      n.x=W/2 + Math.cos(angle)*R + (Math.random()-0.5)*50;
-      n.y=H/2 + Math.sin(angle)*R + (Math.random()-0.5)*50;
+      const c=clusterMap[n.id];
+      cx[c]=(cx[c]||0)+n.x; cy[c]=(cy[c]||0)+n.y; cn[c]=(cn[c]||0)+1;
     });
-    ctr.x=W/2; ctr.y=H/2;
+    authorNodes.forEach(n=>{
+      const c=clusterMap[n.id];
+      const mx=cx[c]/cn[c], my=cy[c]/cn[c];
+      n.vx+=(mx-n.x)*clusterForceStrength*alpha;
+      n.vy+=(my-n.y)*clusterForceStrength*alpha;
+    });
   }
 
   // ── Degree count (for FA2-style repulsion scaling) ──
@@ -1430,10 +1552,10 @@ function drawNetwork(coauthors){
       .velocityDecay(0.6)
       .force('link', d3.forceLink(links).id(d=>d.id)
         .distance(d=>d.isInter
-          ? 50 + 120*(1 - Math.min(d.strength/maxInterS,1))
-          : 180 + 120*(1 - d.strength/maxS))
+          ? 40 + 80*(1 - Math.min(d.strength/maxInterS,1))
+          : 160 + 100*(1 - d.strength/maxS))
         .strength(d=>d.isInter
-          ? 0.06 + 0.12*(d.strength/maxInterS)
+          ? 0.18 + 0.25*(d.strength/maxInterS)
           : 0.01 + 0.03*(d.strength/maxS)))
       .force('charge', d3.forceManyBody()
         .strength(d=>{
@@ -1441,6 +1563,7 @@ function drawNetwork(coauthors){
           return d.type==='center' ? -3000 : -(200 + k*120 + d.r*15);
         })
         .distanceMax(600))
+      .force('cluster', clusterForce)
       .force('center', d3.forceCenter(W/2,H/2).strength(0.03))
       .force('collision', d3.forceCollide()
         .radius(d=>d.r+22)
@@ -1456,6 +1579,7 @@ function drawNetwork(coauthors){
       .force('charge', d3.forceManyBody()
         .strength(d=>d.type==='center'?-1800:-80-d.r*4)
         .distanceMax(800))
+      .force('cluster', clusterForce)
       .force('center', d3.forceCenter(W/2,H/2).strength(0.04))
       .force('collision', d3.forceCollide().radius(d=>d.r+6).strength(0.7).iterations(2));
   }
@@ -1515,12 +1639,18 @@ function drawNetwork(coauthors){
   nd.on('mousemove',(e,d)=>{
     let h=`<strong>${d.label||'—'}</strong>`;
     if(d.type==='author'){
-      if(d.institution) h+=`<div class="tr" style="color:var(--text2);font-size:10.5px;margin-bottom:2px;white-space:normal;line-height:1.4">${d.institution}</div>`;
+      // Read enrichment live from coData so citations are always current
+      // even if the tooltip is shown before fetchCoauthorCitations completes
+      const live=coData.find(c=>c.id===d.id);
+      const liveCitations=live?.citations||d.citations;
+      const liveInstitution=live?.institution||d.institution;
+      const liveCountry=live?.country||d.country;
+      if(liveInstitution) h+=`<div class="tr" style="color:var(--text2);font-size:10.5px;margin-bottom:2px;white-space:normal;line-height:1.4">${liveInstitution}</div>`;
       h+=`<div class="tr">Shared papers: <span class="tv">${d.count}</span></div>`;
       h+=`<div class="tr">Link strength: <span class="tv">${d.strength?.toFixed(3)}</span></div>`;
-      h+=`<div class="tr">Citations: <span class="tv">${d.citations?d.citations.toLocaleString():'—'}</span></div>`;
+      h+=`<div class="tr">Citations: <span class="tv">${liveCitations?liveCitations.toLocaleString():'—'}</span></div>`;
       h+=`<div class="tr">Avg collab year: <span class="tv">${d.avgYear||'—'}</span></div>`;
-      if(d.country) h+=`<div class="tr">Country: <span class="tv">${d.country}</span></div>`;
+      if(liveCountry) h+=`<div class="tr">Country: <span class="tv">${liveCountry}</span></div>`;
       if(interLinksEnabled){
         // Always use full unfiltered interLinks so count is never affected by maxLinks filter
         const n=interLinks.filter(l=>{
@@ -1594,7 +1724,6 @@ function drawFunders(){
 
   // Aggregate funders from awards field — respects all active filters
   const fmap={};
-  const visIds=new Set(getVisible().map(c=>c.id));
   const mainId=authorRec?.id;
   getClusterFilteredPapers().forEach(p=>{
     const awards=p.awards||p.grants||[];
@@ -1697,8 +1826,9 @@ async function drawGeo(){
   const countryData={};
   const coDataById={};
   coData.forEach(c=>{coDataById[c.id]=c;});
-  // Use getVisible() so institution/cluster filters affect the geo map
-  const visibleIds=new Set(getVisible().map(c=>c.id));
+  // Use getFilterVisible (no minLinks) so geo map reflects institution/cluster
+  // filters only — minLinks is a graph display setting, not a data filter
+  const visibleIds=new Set(getFilterVisible().map(c=>c.id));
   Object.entries(geoEnrich).forEach(([id,geo])=>{
     if(!geo.country) return;
     // Only include authors that pass current filters
