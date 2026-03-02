@@ -202,8 +202,23 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .dual-range-wrap input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;
   background:var(--accent);cursor:pointer;pointer-events:all;border:2px solid var(--surface);}
 
-/* Controls */
-.crow{display:flex;align-items:center;gap:7px;margin-bottom:3px;}
+/* Author picker */
+#author-picker{position:absolute;top:100%;left:0;right:0;margin-top:3px;
+  background:var(--surface);border:1px solid var(--border2);border-radius:5px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.45);z-index:200;overflow:hidden;display:none;}
+#author-picker .ap-item{display:flex;align-items:center;gap:10px;padding:8px 12px;
+  cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;}
+#author-picker .ap-item:last-child{border-bottom:none;}
+#author-picker .ap-item:hover{background:var(--surface2);}
+#author-picker .ap-name{font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;flex-shrink:0;max-width:160px;}
+#author-picker .ap-inst{font-size:11px;color:var(--text2);flex:1;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+#author-picker .ap-works{font-size:10.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;
+  white-space:nowrap;flex-shrink:0;}
+#author-picker .ap-hint{padding:7px 12px;font-size:11px;color:var(--muted);font-style:italic;}
+.swrap{position:relative;}
+.crow{display:flex;align-items:center;justify-content:space-between;gap:7px;margin-bottom:3px;}
 .clbl{font-size:11.5px;color:var(--text2);flex:1;}
 .cval{font-size:11px;color:var(--accent);font-family:'IBM Plex Mono',monospace;min-width:28px;text-align:right;}
 input[type=range]{-webkit-appearance:none;width:100%;height:3px;background:var(--border2);
@@ -299,8 +314,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
   </div>
 
   <div class="swrap">
-    <input type="text" id="qinput" placeholder="Researcher name, e.g. Ian J. Wright" />
-    <button class="bgo" id="sbtn" onclick="doSearch()">Visualize</button>
+    <input type="text" id="qinput" placeholder="Researcher name, e.g. Ian J. Wright"
+           onkeydown="if(event.key==='Enter')doSearch()"/>
+    <button class="bgo" id="sbtn" onclick="doSearch()">Search</button>
+    <div id="author-picker"></div>
   </div>
 
   <div class="sep"></div>
@@ -422,6 +439,19 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
       <div id="type-filters"></div>
     </div>
 
+    <!-- Byline filter -->
+    <div class="psec" id="byline-sec" style="display:none;">
+      <h4>Byline Filter</h4>
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="byline-toggle" onchange="toggleByline(this)"
+               style="margin-top:2px;accent-color:var(--accent);flex-shrink:0;"/>
+        <span>
+          <span id="byline-label" style="font-size:11.5px;color:var(--text);line-height:1.4;display:block;"></span>
+          <span id="byline-count" style="font-size:10px;color:var(--muted);display:block;margin-top:2px;"></span>
+        </span>
+      </label>
+    </div>
+
     <!-- Institution filter -->
     <div class="psec" id="inst-sec" style="display:none;">
       <h4>Institution Filter</h4>
@@ -471,6 +501,8 @@ let listAll=[], listSortKey='count', listSortDir=-1;
 let enabledClusters=new Set();
 let enabledTypes=new Set(['article','book','book-chapter','preprint','dataset','other']);
 let enabledInstitutions=null; // null = all enabled (before enrichment)
+let bylineFilterEnabled=false;
+let currentInstId=null; // OpenAlex institution ID for searched author's current institution
 let trendMode='works';
 let geoProjection=null, geoZoomB=null;
 let _worldCache=null;
@@ -677,70 +709,160 @@ async function doSearch(){
   if(!q) return;
   const btn=document.getElementById('sbtn');
   btn.disabled=true; btn.textContent='Loading…';
-  showStatus('<div class="ring"></div>Searching OpenAlex…');
-  document.getElementById('graph').innerHTML='';
-  allPapers=[]; coData=[]; geoEnrich={}; _worldCache=null; enabledInstitutions=null; topicColorMap={};
+  document.getElementById('author-picker').style.display='none';
 
   try{
-    let url;
     if(searchMode==='orcid'){
+      // ORCID is unambiguous — load directly
       const orcid=q.replace(/^.*orcid\.org\//,'').trim();
-      url=`https://api.openalex.org/authors?filter=orcid:${encodeURIComponent(orcid)}&per_page=1`;
+      showStatus('<div class="ring"></div>Searching OpenAlex…');
+      const r=await fetch(`https://api.openalex.org/authors?filter=orcid:${encodeURIComponent(orcid)}&per_page=1&select=id,display_name,orcid,works_count,cited_by_count,last_known_institutions,affiliations`);
+      const d=await r.json();
+      if(!d.results?.length){showStatus('<span style="color:var(--red)">No researcher found.</span>');return;}
+      await loadAuthor(d.results[0]);
     } else {
-      url=`https://api.openalex.org/authors?search=${encodeURIComponent(q)}&per_page=1`;
+      // Name search — show disambiguation picker
+      await showAuthorPicker(q);
     }
-    const ar=await fetch(url);
-    const aj=await ar.json();
-    if(!aj.results?.length){showStatus('<span style="color:var(--red)">No researcher found. Check spelling or try ORCID.</span>');return;}
-    authorRec=aj.results[0];
-    const authorId=authorRec.id.replace('https://openalex.org/','');
-
-    allPapers=await fetchAllWorks(authorId);
-    if(!allPapers.length){showStatus('<span style="color:var(--red)">No publications found.</span>');return;}
-
-    // Build stable topic→colour map from ALL papers once — never recomputed on filter changes.
-    // Topics are ordered by frequency (most common first) to match the original colour assignment,
-    // then the map is frozen so colours never shift when filters are applied.
-    const topicFreq={};
-    allPapers.forEach(p=>{ const t=p.topics?.[0]?.display_name; if(t) topicFreq[t]=(topicFreq[t]||0)+1; });
-    Object.keys(topicFreq).sort((a,b)=>topicFreq[b]-topicFreq[a]).forEach((t,i)=>{ topicColorMap[t]=i%COLORS.length; });
-
-    initYearSliders();
-    buildTypeFilters();
-    buildCoData();
-
-    // ── Auto-set minLinks to target ~100 visible co-authors ──
-    // Walk the sorted coData (descending count) to find the threshold
-    // where the visible set is closest to 100 nodes.
-    const TARGET=100;
-    let bestMin=1, bestDiff=Infinity;
-    const counts=coData.map(c=>c.count);
-    // Unique thresholds to test: 1 up to max
-    const maxCount=counts[0]||1;
-    for(let t=1;t<=maxCount;t++){
-      const visible=counts.filter(c=>c>=t).length;
-      const diff=Math.abs(visible-TARGET);
-      if(diff<bestDiff){bestDiff=diff;bestMin=t;}
-      if(visible<TARGET*0.5) break; // no point going higher — already too few
-    }
-    minLinks=Math.max(1,bestMin);
-    const slEl=document.getElementById('ml-s');
-    slEl.value=minLinks;
-    document.getElementById('ml-v').textContent=minLinks;
-    updateStats();
-    drawTrendChart();
-    buildOABar();
-    buildJournals();
-    buildClusterFilters();
-    buildSidebar();
-    buildListData();
-    fetchCoauthorCitations(coData.slice(0,100));
-    redraw();
-
   }catch(e){
     showStatus(`<span style="color:var(--red)">Error: ${e.message}</span>`);
     console.error(e);
-  }finally{btn.disabled=false;btn.textContent='Visualize';}
+  }finally{
+    btn.disabled=false; btn.textContent='Search';
+  }
+}
+
+async function showAuthorPicker(q){
+  showStatus('<div class="ring"></div>Searching OpenAlex…');
+  const r=await fetch(`https://api.openalex.org/authors?search=${encodeURIComponent(q)}&per_page=8&select=id,display_name,orcid,works_count,cited_by_count,last_known_institutions,affiliations`);
+  const d=await r.json();
+  const results=d.results||[];
+  const picker=document.getElementById('author-picker');
+
+  if(!results.length){
+    showStatus('<span style="color:var(--red)">No researcher found. Check spelling or try ORCID.</span>');
+    picker.style.display='none';
+    return;
+  }
+
+  // Single exact match — skip the picker
+  if(results.length===1){
+    hideStatus();
+    await loadAuthor(results[0]);
+    return;
+  }
+
+  showStatus('<div style="font-size:13px;color:var(--text2);">Select the correct researcher below ↓</div>');
+
+  picker.innerHTML=results.map((a,i)=>{
+    const {institution}=bestInstitution(a);
+    const inst=institution||'Unknown institution';
+    const works=(a.works_count||0).toLocaleString();
+    const orcidStr=a.orcid
+      ?`<span style="font-size:9.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;display:block;">${a.orcid.replace('https://orcid.org/','')}</span>`
+      :'';
+    return `<div class="ap-item" onclick="selectAuthor(${i})">
+      <div style="flex:1;min-width:0;">
+        <span class="ap-name">${a.display_name}</span>
+        ${orcidStr}
+        <span class="ap-inst">${inst}</span>
+      </div>
+      <span class="ap-works">${works} works</span>
+    </div>`;
+  }).join('')+
+  `<div class="ap-hint">Not finding the right person? Switch to ORCID search for a precise match.</div>`;
+
+  picker._results=results;
+  picker.style.display='block';
+
+  // Close if user clicks outside
+  setTimeout(()=>{
+    document.addEventListener('click',function handler(e){
+      if(!picker.contains(e.target)&&e.target.id!=='qinput'&&e.target.id!=='sbtn'){
+        picker.style.display='none';
+        document.removeEventListener('click',handler);
+      }
+    });
+  },0);
+}
+
+async function selectAuthor(idx){
+  const picker=document.getElementById('author-picker');
+  const author=picker._results?.[idx];
+  if(!author) return;
+  picker.style.display='none';
+  const btn=document.getElementById('sbtn');
+  btn.disabled=true; btn.textContent='Loading…';
+  try{
+    await loadAuthor(author);
+  }catch(e){
+    showStatus(`<span style="color:var(--red)">Error: ${e.message}</span>`);
+    console.error(e);
+  }finally{
+    btn.disabled=false; btn.textContent='Search';
+  }
+}
+
+async function loadAuthor(rec){
+  authorRec=rec;
+  showStatus('<div class="ring"></div>Loading publications…');
+  document.getElementById('graph').innerHTML='';
+  allPapers=[]; coData=[]; geoEnrich={}; _worldCache=null; enabledInstitutions=null; topicColorMap={};
+  bylineFilterEnabled=false; currentInstId=null;
+
+  const authorId=authorRec.id.replace('https://openalex.org/','');
+
+  allPapers=await fetchAllWorks(authorId);
+  if(!allPapers.length){showStatus('<span style="color:var(--red)">No publications found.</span>');return;}
+
+  // Build stable topic→colour map from ALL papers once
+  const topicFreq={};
+  allPapers.forEach(p=>{ const t=p.topics?.[0]?.display_name; if(t) topicFreq[t]=(topicFreq[t]||0)+1; });
+  Object.keys(topicFreq).sort((a,b)=>topicFreq[b]-topicFreq[a]).forEach((t,i)=>{ topicColorMap[t]=i%COLORS.length; });
+
+  // Determine current institution ID for byline filter
+  currentInstId=null;
+  const affs=authorRec.affiliations;
+  if(affs?.length){
+    let bestYear=-1;
+    affs.forEach(a=>{
+      const id=a.institution?.id;
+      if(!id) return;
+      const yr=a.years?.length?Math.max(...a.years):0;
+      if(yr>bestYear){bestYear=yr;currentInstId=id;}
+    });
+  }
+  if(!currentInstId) currentInstId=authorRec.last_known_institutions?.[0]?.id||null;
+  buildBylineToggle();
+
+  initYearSliders();
+  buildTypeFilters();
+  buildCoData();
+
+  // Auto-set minLinks to target ~100 visible co-authors
+  const TARGET=100;
+  let bestMin=1, bestDiff=Infinity;
+  const counts=coData.map(c=>c.count);
+  const maxCount=counts[0]||1;
+  for(let t=1;t<=maxCount;t++){
+    const visible=counts.filter(c=>c>=t).length;
+    const diff=Math.abs(visible-TARGET);
+    if(diff<bestDiff){bestDiff=diff;bestMin=t;}
+    if(visible<TARGET*0.5) break;
+  }
+  minLinks=Math.max(1,bestMin);
+  const slEl=document.getElementById('ml-s');
+  slEl.value=minLinks;
+  document.getElementById('ml-v').textContent=minLinks;
+  updateStats();
+  drawTrendChart();
+  buildOABar();
+  buildJournals();
+  buildClusterFilters();
+  buildSidebar();
+  buildListData();
+  fetchCoauthorCitations(coData.slice(0,100));
+  redraw();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -825,11 +947,9 @@ function buildCoData(){
     });
   });
 
-  // ── Pass 2: compute filtered counts from active year+type filters ──
-  // count/strength/avgYear reflect only the filtered papers so the
-  // min-shared-papers slider and stats respond to year/type filters correctly.
+  // ── Pass 2: compute filtered counts from active year+type+byline filters ──
   const filtFreq={};
-  getFilteredPapers().forEach(paper=>{
+  getBylineFilteredPapers().forEach(paper=>{
     const auths=paper.authorships||[];
     if(!auths.some(a=>a.author?.id===mainId)) return;
     const co=auths.length-1;
@@ -891,6 +1011,44 @@ function getFilteredPapers(){
   });
 }
 
+// Returns papers passing year+type filters, and optionally the byline filter.
+// All downstream functions (buildCoData pass 2, getClusterFilteredPapers, charts)
+// call this instead of getFilteredPapers so the byline filter cascades everywhere.
+function getBylineFilteredPapers(){
+  const base=getFilteredPapers();
+  if(!bylineFilterEnabled||!currentInstId) return base;
+  const mainId=authorRec?.id;
+  return base.filter(p=>{
+    const authEntry=(p.authorships||[]).find(a=>a.author?.id===mainId);
+    if(!authEntry) return false;
+    return (authEntry.institutions||[]).some(i=>i.id===currentInstId);
+  });
+}
+
+function buildBylineToggle(){
+  const sec=document.getElementById('byline-sec');
+  if(!sec) return;
+  if(!currentInstId){sec.style.display='none';return;}
+  // Count papers where the author's byline matches current institution
+  const mainId=authorRec?.id;
+  const matching=allPapers.filter(p=>{
+    const authEntry=(p.authorships||[]).find(a=>a.author?.id===mainId);
+    return authEntry&&(authEntry.institutions||[]).some(i=>i.id===currentInstId);
+  }).length;
+  const {institution:instName}=bestInstitution(authorRec);
+  document.getElementById('byline-label').textContent=
+    `${instName||'current institution'} papers only`;
+  document.getElementById('byline-count').textContent=
+    `${matching} of ${allPapers.length} papers have affiliation data`;
+  document.getElementById('byline-toggle').checked=bylineFilterEnabled;
+  sec.style.display='block';
+}
+
+function toggleByline(el){
+  bylineFilterEnabled=el.checked;
+  buildCoData(); updateStats(); buildSidebar(false); buildListData(); drawTrendChart(); buildOABar(); redraw();
+}
+
 // Co-authors that pass institution+cluster filters regardless of minLinks.
 // Used by getClusterFilteredPapers so paper/stat counts are never affected
 // by the graph display threshold.
@@ -908,11 +1066,10 @@ function getFilterVisible(){
 function getClusterFilteredPapers(){
   const allClustersOn=coData.every(c=>enabledClusters.has(c.cluster));
   const allInstsOn=!enabledInstitutions||coData.every(c=>!c.institution||enabledInstitutions.has(c.institution));
-  if(allClustersOn&&allInstsOn) return getFilteredPapers();
-  // Use getFilterVisible (no minLinks) not getVisible so minLinks never affects paper counts
+  if(allClustersOn&&allInstsOn) return getBylineFilteredPapers();
   const visIds=new Set(getFilterVisible().map(c=>c.id));
   const mainId=authorRec?.id;
-  return getFilteredPapers().filter(p=>{
+  return getBylineFilteredPapers().filter(p=>{
     const auths=p.authorships||[];
     return auths.some(a=>a.author?.id&&a.author.id!==mainId&&visIds.has(a.author.id));
   });
@@ -961,17 +1118,12 @@ function assignClusters(){
 // ═══════════════════════════════════════════════════════════════
 function updateStats(){
   const vis=getVisible().length;
-  // Total passing institution+cluster filters regardless of minLinks threshold
-  const totalVisible=coData.filter(c=>{
-    if(!enabledClusters.has(c.cluster)) return false;
-    if(enabledInstitutions){
-      if(c.institution&&!enabledInstitutions.has(c.institution)) return false;
-      if(!c.institution&&!enabledInstitutions.has(UNKNOWN_INST)) return false;
-    }
-    return true;
-  }).length;
-  // Use full filter chain so institution + cluster filters affect paper/citation counts
-  const basePapers=getClusterFilteredPapers();
+  // Unique co-authors: passes cluster+institution filters AND has at least 1 shared
+  // paper in the current year/type/byline window (count comes from buildCoData pass 2)
+  const totalVisible=getFilterVisible().filter(c=>c.count>0).length;
+  // Paper count uses year+type+byline only — cluster/institution filters never
+  // affect the paper count (solo-authored papers always count as "your papers")
+  const basePapers=getBylineFilteredPapers();
   const isFiltered=basePapers.length<allPapers.length;
   const filteredCites=basePapers.reduce((s,p)=>s+(p.cited_by_count||0),0);
 
@@ -1119,7 +1271,7 @@ function renderTrend(cby){
 // ═══════════════════════════════════════════════════════════════
 function buildJournals(){
   const jmap={};
-  getFilteredPapers().forEach(p=>{
+  getBylineFilteredPapers().forEach(p=>{
     const j=p.primary_location?.source?.display_name;
     if(j) jmap[j]=(jmap[j]||0)+1;
   });
@@ -1181,9 +1333,15 @@ function buildInstitutionFilter(){
   const insts=Object.entries(instCounts).sort((a,b)=>b[1]-a[1]);
   if(!insts.length&&!unknownCount){document.getElementById('inst-sec').style.display='none';return;}
 
-  // Initialise enabledInstitutions to all on first build (including unknown)
+  // Initialise enabledInstitutions on first build; add any newly discovered
+  // institutions on subsequent calls (e.g. from fetchMissingCitations).
+  // Never remove institutions — only add — so late-arriving enrichment
+  // doesn't cause the allInstsOn check to fail in getClusterFilteredPapers.
   if(!enabledInstitutions){
     enabledInstitutions=new Set(insts.map(([n])=>n));
+    enabledInstitutions.add(UNKNOWN_INST);
+  } else {
+    insts.forEach(([n])=>enabledInstitutions.add(n));
     enabledInstitutions.add(UNKNOWN_INST);
   }
 
@@ -1338,7 +1496,7 @@ function buildInterLinks(visibleIds){
   const mainId=authorRec.id;
   const pairMap={};
 
-  getFilteredPapers().forEach(paper=>{
+  getBylineFilteredPapers().forEach(paper=>{
     const auths=paper.authorships||[];
     if(!auths.some(a=>a.author?.id===mainId)) return;
 
@@ -2116,7 +2274,8 @@ document.addEventListener('DOMContentLoaded',()=>{
           • <strong>Min. shared papers</strong> — lower to reveal more collaborators.<br>
           • <strong>Year range</strong> &amp; <strong>Work type</strong> — narrow by time or publication type.<br>
           • <strong>Institution</strong> — show only co-authors from specific institutions (appears after network loads).<br>
-          • <strong>Topic clusters</strong> — filter by detected research community.<br><br>
+          • <strong>Topic clusters</strong> — filter by detected research community.<br>
+          • <strong>Byline filter</strong> — show only papers where the searched author's listed affiliation matches their current institution, isolating collaborations built at a specific career stage.<br><br>
           All filters update stats, charts, and open access breakdown together.</p>
         </div>
 
