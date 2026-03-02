@@ -752,7 +752,7 @@ async function showAuthorPicker(q){
     return;
   }
 
-  showStatus('<div style="font-size:13px;color:var(--text2);">Select the correct researcher below ↓</div>');
+  showStatus('<div style="font-size:13px;color:var(--text2);">Select the correct researcher above ↑</div>');
 
   picker.innerHTML=results.map((a,i)=>{
     const {institution}=bestInstitution(a);
@@ -780,6 +780,7 @@ async function showAuthorPicker(q){
     document.addEventListener('click',function handler(e){
       if(!picker.contains(e.target)&&e.target.id!=='qinput'&&e.target.id!=='sbtn'){
         picker.style.display='none';
+        hideStatus();
         document.removeEventListener('click',handler);
       }
     });
