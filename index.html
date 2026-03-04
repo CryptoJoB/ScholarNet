@@ -1798,17 +1798,20 @@ function drawNetwork(coauthors){
   nd.on('mousemove',(e,d)=>{
     let h=`<strong>${d.label||'—'}</strong>`;
     if(d.type==='author'){
-      // Read enrichment live from coData so citations are always current
-      // even if the tooltip is shown before fetchCoauthorCitations completes
+      // Read all values live from coData so tooltip always reflects current filters
       const live=coData.find(c=>c.id===d.id);
+      const liveCount=live?.count??d.count;
+      const liveStrength=live?.strength??d.strength;
+      const liveAvgYear=live?.avgYear??d.avgYear;
       const liveCitations=live?.citations||d.citations;
       const liveInstitution=live?.institution||d.institution;
       const liveCountry=live?.country||d.country;
+      const isFiltered=getBylineFilteredPapers().length<allPapers.length;
       if(liveInstitution) h+=`<div class="tr" style="color:var(--text2);font-size:10.5px;margin-bottom:2px;white-space:normal;line-height:1.4">${liveInstitution}</div>`;
-      h+=`<div class="tr">Shared papers: <span class="tv">${d.count}</span></div>`;
-      h+=`<div class="tr">Link strength: <span class="tv">${d.strength?.toFixed(3)}</span></div>`;
+      h+=`<div class="tr">Shared papers: <span class="tv" style="${isFiltered?'color:var(--yellow)':''}">${liveCount}</span></div>`;
+      h+=`<div class="tr">Link strength: <span class="tv" style="${isFiltered?'color:var(--yellow)':''}">${liveStrength?.toFixed(3)}</span></div>`;
       h+=`<div class="tr">Citations: <span class="tv">${liveCitations?liveCitations.toLocaleString():'—'}</span></div>`;
-      h+=`<div class="tr">Avg collab year: <span class="tv">${d.avgYear||'—'}</span></div>`;
+      h+=`<div class="tr">Avg collab year: <span class="tv">${liveAvgYear||'—'}</span></div>`;
       if(liveCountry) h+=`<div class="tr">Country: <span class="tv">${liveCountry}</span></div>`;
       if(interLinksEnabled){
         // Always use full unfiltered interLinks so count is never affected by maxLinks filter
@@ -1825,12 +1828,16 @@ function drawNetwork(coauthors){
       const orcid=authorRec.orcid?.replace('https://orcid.org/','');
       if(inst) h+=`<div class="tr" style="color:var(--text2);font-size:10.5px;margin-bottom:3px;white-space:normal;line-height:1.4">${inst}${country?' · '+country:''}</div>`;
       if(orcid) h+=`<div class="tr">ORCID: <span class="tv" style="font-family:'IBM Plex Mono',monospace;font-size:10px">${orcid}</span></div>`;
-      h+=`<div class="tr">Publications: <span class="tv">${(authorRec.works_count||0).toLocaleString()}</span></div>`;
-      h+=`<div class="tr">Citations: <span class="tv">${(authorRec.cited_by_count||0).toLocaleString()}</span></div>`;
+      // Use filtered values matching the sidebar
+      const tipPapers=getBylineFilteredPapers();
+      const tipFiltered=tipPapers.length<allPapers.length;
+      const tipCites=tipPapers.reduce((s,p)=>s+(p.cited_by_count||0),0);
+      const tipCoauthors=getFilterVisible().filter(c=>c.count>0).length;
+      h+=`<div class="tr">Publications: <span class="tv" style="${tipFiltered?'color:var(--yellow)':''}">${tipPapers.length.toLocaleString()}${tipFiltered?` / ${allPapers.length}`:''}</span></div>`;
+      h+=`<div class="tr">Citations: <span class="tv" style="${tipFiltered?'color:var(--yellow)':''}">${tipFiltered?tipCites.toLocaleString():(authorRec.cited_by_count||0).toLocaleString()}</span></div>`;
       if(authorRec.summary_stats?.h_index) h+=`<div class="tr">h-index: <span class="tv">${authorRec.summary_stats.h_index}</span></div>`;
       if(authorRec.summary_stats?.['2yr_mean_citedness']) h+=`<div class="tr">2yr mean citedness: <span class="tv">${authorRec.summary_stats['2yr_mean_citedness'].toFixed(2)}</span></div>`;
-      // Total co-author links — always unfiltered
-      h+=`<div class="tr">Total co-authors: <span class="tv">${coData.length.toLocaleString()}</span></div>`;
+      h+=`<div class="tr">Co-authors: <span class="tv" style="${tipFiltered?'color:var(--yellow)':''}">${tipCoauthors.toLocaleString()}</span></div>`;
       if(interLinksEnabled && interLinks.length)
         h+=`<div class="tr">Total co-links: <span class="tv" style="color:rgba(171,71,188,0.9)">${interLinks.length.toLocaleString()}</span></div>`;
       h+=`<div class="tr" style="margin-top:3px;color:var(--muted);font-size:10px">Click to deselect · Right-click for OpenAlex ↗</div>`;
