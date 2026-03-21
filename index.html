@@ -74,6 +74,13 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
           font-size:11px;font-family:'IBM Plex Sans',sans-serif;padding:3px 8px;
           border-radius:3px;cursor:pointer;transition:all .15s;flex-shrink:0;margin-left:4px;}
 .help-btn:hover{border-color:var(--border2);color:var(--text);}
+.action-btn{background:transparent;border:1px solid var(--border);color:var(--text2);
+            font-size:11px;font-family:'IBM Plex Sans',sans-serif;padding:3px 8px;
+            border-radius:3px;cursor:pointer;transition:all .15s;flex-shrink:0;
+            display:flex;align-items:center;gap:4px;white-space:nowrap;}
+.action-btn:hover{border-color:var(--accent);color:var(--accent);}
+.action-btn:disabled{opacity:.35;cursor:not-allowed;}
+.action-btn.copied{border-color:var(--green);color:var(--green);}
 
 .mtoggle{display:flex;border:1px solid var(--border);border-radius:3px;overflow:hidden;}
 .mbtn{background:transparent;border:none;color:var(--text2);font-family:'IBM Plex Sans',sans-serif;
@@ -314,7 +321,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
   </div>
 
   <div class="swrap">
-    <input type="text" id="qinput" placeholder="Researcher name, e.g. Ian J. Wright"
+    <input type="text" id="qinput" placeholder="Researcher name"
            onkeydown="if(event.key==='Enter')doSearch()"/>
     <button class="bgo" id="sbtn" onclick="doSearch()">Search</button>
     <div id="author-picker"></div>
@@ -339,6 +346,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
 
   <div class="sep"></div>
   <button class="ibtn" id="interbtn" title="Show links between co-authors derived from shared papers" onclick="toggleInterLinks()" style="font-size:10px;font-weight:700;width:auto;padding:0 9px;white-space:nowrap;border-color:rgba(171,71,188,0.6);background:rgba(171,71,188,0.12);color:#ce93d8;gap:4px;display:flex;align-items:center;">★ Co-links</button>
+  <button class="action-btn" id="share-btn" onclick="sharePermalink()" title="Copy shareable link" disabled>⤴ Share</button>
+  <button class="action-btn" id="export-btn" onclick="exportPNG()" title="Save network as PNG" disabled>↓ PNG</button>
   <button class="help-btn" onclick="showModal()" title="Help & About">?</button>
 </div>
 
@@ -534,7 +543,7 @@ function setMode(m){
   document.getElementById('m-name').classList.toggle('on',m==='name');
   document.getElementById('m-orcid').classList.toggle('on',m==='orcid');
   document.getElementById('qinput').placeholder=
-    m==='orcid'?'ORCID iD, e.g. 0000-0001-5728-9699':'Researcher name, e.g. Ian J. Wright';
+    m==='orcid'?'ORCID iD':'Researcher name';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -874,6 +883,12 @@ async function loadAuthor(rec){
   buildListData();
   fetchCoauthorCitations(coData.slice(0,100));
   redraw();
+  // Enable share + export now that a network is loaded
+  document.getElementById('share-btn').disabled=false;
+  document.getElementById('export-btn').disabled=false;
+  // Update URL so current author is permalinkable without pushing a new history entry
+  const aid=authorRec.id.replace('https://openalex.org/','');
+  history.replaceState(null,'',`?author=${aid}`);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2242,11 +2257,139 @@ document.addEventListener('keydown',e=>{
   const bg=document.getElementById('modal-bg');
   if(e.key==='Escape'&&bg&&bg.style.display!=='none') hideModal();
 });
+// ═══════════════════════════════════════════════════════════════
+// SHARE PERMALINK
+// ═══════════════════════════════════════════════════════════════
+function sharePermalink(){
+  const btn=document.getElementById('share-btn');
+  navigator.clipboard.writeText(window.location.href).then(()=>{
+    btn.textContent='✓ Copied!';
+    btn.classList.add('copied');
+    setTimeout(()=>{btn.textContent='⤴ Share';btn.classList.remove('copied');},2000);
+  }).catch(()=>{
+    // Fallback for browsers that block clipboard without HTTPS focus
+    prompt('Copy this link:',window.location.href);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EXPORT PNG
+// ═══════════════════════════════════════════════════════════════
+async function exportPNG(){
+  const btn=document.getElementById('export-btn');
+  btn.disabled=true; btn.textContent='Saving…';
+
+  try{
+    const svgEl=document.getElementById('graph');
+    const W=svgEl.clientWidth, H=svgEl.clientHeight;
+
+    // Serialise the live SVG
+    const svgClone=svgEl.cloneNode(true);
+    svgClone.setAttribute('width',W);
+    svgClone.setAttribute('height',H);
+    // Embed dark background so exported PNG matches screen
+    svgClone.style.background='#0d0f14';
+    const svgStr=new XMLSerializer().serializeToString(svgClone);
+    const svgBlob=new Blob([svgStr],{type:'image/svg+xml;charset=utf-8'});
+    const svgUrl=URL.createObjectURL(svgBlob);
+
+    const img=new Image();
+    await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=svgUrl;});
+
+    const canvas=document.createElement('canvas');
+    const SCALE=2; // retina quality
+    canvas.width=W*SCALE; canvas.height=H*SCALE;
+    const ctx=canvas.getContext('2d');
+    ctx.scale(SCALE,SCALE);
+
+    // Background
+    ctx.fillStyle='#0d0f14';
+    ctx.fillRect(0,0,W,H);
+
+    // Network
+    ctx.drawImage(img,0,0,W,H);
+    URL.revokeObjectURL(svgUrl);
+
+    // ── Branding overlay ──
+    const PAD=14;
+    // Logo mark — small circle cluster
+    const dotR=4, cx=PAD+dotR, cy=H-PAD-dotR;
+    const dotCols=['#4fc3f7','#66bb6a','#ffca28','#ef5350','#ab47bc'];
+    const dotPos=[[-8,-8],[8,-8],[8,8],[-8,8],[0,-14]];
+    ctx.globalAlpha=0.9;
+    dotPos.forEach(([dx,dy],i)=>{
+      ctx.beginPath();
+      ctx.arc(cx+dx,cy+dy,dotR*0.75,0,Math.PI*2);
+      ctx.fillStyle=dotCols[i];
+      ctx.fill();
+    });
+    // Center dot
+    ctx.beginPath();
+    ctx.arc(cx,cy,dotR*0.9,0,Math.PI*2);
+    ctx.fillStyle='#fff';
+    ctx.fill();
+    ctx.strokeStyle='#4fc3f7';
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+
+    // "ScholarNet" text
+    ctx.globalAlpha=1;
+    ctx.font='bold 13px IBM Plex Sans,sans-serif';
+    ctx.fillStyle='#dde1ec';
+    ctx.fillText('ScholarNet',cx+dotR+8,cy+4);
+
+    // Researcher name
+    if(authorRec){
+      ctx.font='11px IBM Plex Sans,sans-serif';
+      ctx.fillStyle='#9aa0b8';
+      ctx.fillText(authorRec.display_name,cx+dotR+8,cy+18);
+    }
+
+    // scholarnet.net watermark top-right
+    ctx.font='10px IBM Plex Sans,sans-serif';
+    ctx.fillStyle='rgba(150,160,184,0.5)';
+    ctx.textAlign='right';
+    ctx.fillText('scholarnet.net',W-PAD,PAD+10);
+    ctx.textAlign='left';
+
+    // Download
+    const link=document.createElement('a');
+    const name=(authorRec?.display_name||'network').replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
+    link.download=`ScholarNet_${name}.png`;
+    link.href=canvas.toDataURL('image/png');
+    link.click();
+
+  }catch(e){
+    console.error('Export failed:',e);
+    alert('Export failed. Please try again.');
+  }finally{
+    btn.disabled=false; btn.textContent='↓ PNG';
+  }
+}
+
 // Show on load unless user dismissed permanently — must wait for modal HTML to exist
 document.addEventListener('DOMContentLoaded',()=>{
   // Pre-build contact link so it's ready whether modal auto-opens or is clicked open
   const cl=document.getElementById('contact-link');
   if(cl){const u='joebarnier1',d='gmail.com';cl.innerHTML=`Contact <a href="mailto:${u}@${d}" style="color:var(--accent);text-decoration:none;">${u}@${d}</a>`;}
+
+  // ── Permalink auto-load ──
+  // If URL contains ?author=A12345678, auto-load that author silently
+  const params=new URLSearchParams(window.location.search);
+  const authorParam=params.get('author');
+  if(authorParam){
+    // Suppress welcome modal when arriving via permalink
+    const url=`https://api.openalex.org/authors/${authorParam}`;
+    fetch(url).then(r=>r.json()).then(async d=>{
+      if(d?.id){
+        document.getElementById('share-btn').disabled=true;
+        document.getElementById('export-btn').disabled=true;
+        await loadAuthor(d);
+      }
+    }).catch(()=>{});
+    return; // skip welcome modal for permalink visits
+  }
+
   let skip=false;
   try{skip=localStorage.getItem('sg_skip_welcome')==='1';}catch(e){}
   if(!skip) showModal();
