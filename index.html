@@ -3,7 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ScholarNet — Collaboration Map</title>
+<title>CoAuthra — Collaboration Map</title>
+<script>
+// Redirect scholarnet.net → coauthra.com (preserves ?author= permalinks)
+if (window.location.hostname === 'scholarnet.net' ||
+    window.location.hostname === 'www.scholarnet.net') {
+  window.location.replace(
+    'https://coauthra.com' + window.location.pathname + window.location.search
+  );
+}
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -288,29 +297,15 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
 
 <!-- ═══════════════ TOPBAR ═══════════════ -->
 <div id="topbar">
-  <div class="logo" onclick="showModal()" title="About ScholarNet">
-    <!-- SVG logo mark: stylised node-link graph -->
+  <div class="logo" onclick="showModal()" title="About CoAuthra">
+    <!-- SVG logo mark: two interlocked C arcs suggesting co-authorship -->
     <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <!-- links -->
-      <line x1="15" y1="15" x2="5" y2="7" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
-      <line x1="15" y1="15" x2="25" y2="7" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
-      <line x1="15" y1="15" x2="25" y2="23" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
-      <line x1="15" y1="15" x2="5" y2="23" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
-      <line x1="15" y1="15" x2="15" y2="3" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.5"/>
-      <!-- inter-link between outer nodes -->
-      <line x1="5" y1="7" x2="25" y2="7" stroke="#ab47bc" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="2,2"/>
-      <line x1="25" y1="7" x2="25" y2="23" stroke="#ab47bc" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="2,2"/>
-      <!-- outer nodes -->
-      <circle cx="5" cy="7" r="3" fill="#4fc3f7" fill-opacity="0.85"/>
-      <circle cx="25" cy="7" r="3" fill="#66bb6a" fill-opacity="0.85"/>
-      <circle cx="25" cy="23" r="3" fill="#ffca28" fill-opacity="0.85"/>
-      <circle cx="5" cy="23" r="3" fill="#ef5350" fill-opacity="0.85"/>
-      <circle cx="15" cy="3" r="3" fill="#ab47bc" fill-opacity="0.85"/>
-      <!-- center node -->
-      <circle cx="15" cy="15" r="5" fill="white" stroke="#4fc3f7" stroke-width="1.5"/>
+      <path d="M22 6 A10 10 0 1 0 22 24" stroke="#4fc3f7" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+      <path d="M18 10 A6 6 0 1 0 18 20" stroke="#ab47bc" stroke-width="2" stroke-linecap="round" fill="none"/>
+      <circle cx="13" cy="15" r="2.2" fill="white" stroke="#4fc3f7" stroke-width="1.3"/>
     </svg>
     <div>
-      <div class="logo-name">ScholarNet</div>
+      <div class="logo-name">CoAuthra</div>
       <span class="logo-tag">Collaboration Map</span>
     </div>
   </div>
@@ -2238,7 +2233,7 @@ document.getElementById('qinput').addEventListener('keydown',e=>{if(e.key==='Ent
 // WELCOME MODAL
 // ═══════════════════════════════════════════════════════════════
 function switchModalTab(tab){
-  ['guide','howitworks'].forEach(t=>{
+  ['guide','howitworks','disclaimer'].forEach(t=>{
     const panel=document.getElementById(`mtabpanel-${t}`);
     const btn=document.getElementById(`mtab-${t}`);
     const active=t===tab;
@@ -2262,7 +2257,7 @@ function hideModal(){
   const bg=document.getElementById('modal-bg');
   bg.style.display='none';
   if(document.getElementById('modal-skip').checked){
-    try{localStorage.setItem('sg_skip_welcome','1');}catch(e){}
+    try{localStorage.setItem('ca_skip_welcome','1');}catch(e){}
   }
 }
 document.addEventListener('keydown',e=>{
@@ -2344,11 +2339,11 @@ async function exportPNG(){
     ctx.lineWidth=1.5;
     ctx.stroke();
 
-    // "ScholarNet" text
+    // "CoAuthra" text
     ctx.globalAlpha=1;
     ctx.font='bold 13px IBM Plex Sans,sans-serif';
     ctx.fillStyle='#dde1ec';
-    ctx.fillText('ScholarNet',cx+dotR+8,cy+4);
+    ctx.fillText('CoAuthra',cx+dotR+8,cy+4);
 
     // Researcher name
     if(authorRec){
@@ -2357,17 +2352,17 @@ async function exportPNG(){
       ctx.fillText(authorRec.display_name,cx+dotR+8,cy+18);
     }
 
-    // scholarnet.net watermark top-right
+    // coauthra.com watermark top-right
     ctx.font='10px IBM Plex Sans,sans-serif';
     ctx.fillStyle='rgba(150,160,184,0.5)';
     ctx.textAlign='right';
-    ctx.fillText('scholarnet.net',W-PAD,PAD+10);
+    ctx.fillText('coauthra.com',W-PAD,PAD+10);
     ctx.textAlign='left';
 
     // Download
     const link=document.createElement('a');
     const name=(authorRec?.display_name||'network').replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
-    link.download=`ScholarNet_${name}.png`;
+    link.download=`CoAuthra_${name}.png`;
     link.href=canvas.toDataURL('image/png');
     link.click();
 
@@ -2403,7 +2398,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   }
 
   let skip=false;
-  try{skip=localStorage.getItem('sg_skip_welcome')==='1';}catch(e){}
+  try{skip=localStorage.getItem('ca_skip_welcome')==='1';}catch(e){}
   if(!skip) showModal();
 });
 </script>
@@ -2415,22 +2410,12 @@ document.addEventListener('DOMContentLoaded',()=>{
     <!-- Header -->
     <div class="modal-head">
       <svg width="48" height="48" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
-        <line x1="15" y1="15" x2="5"  y2="7"  stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
-        <line x1="15" y1="15" x2="25" y2="7"  stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
-        <line x1="15" y1="15" x2="25" y2="23" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
-        <line x1="15" y1="15" x2="5"  y2="23" stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
-        <line x1="15" y1="15" x2="15" y2="3"  stroke="#4fc3f7" stroke-width="1.5" stroke-opacity="0.45"/>
-        <line x1="5"  y1="7"  x2="25" y2="7"  stroke="#ab47bc" stroke-width="1"   stroke-opacity="0.55" stroke-dasharray="2,2"/>
-        <line x1="25" y1="7"  x2="25" y2="23" stroke="#ab47bc" stroke-width="1"   stroke-opacity="0.55" stroke-dasharray="2,2"/>
-        <circle cx="5"  cy="7"  r="3" fill="#4fc3f7" fill-opacity="0.9"/>
-        <circle cx="25" cy="7"  r="3" fill="#66bb6a" fill-opacity="0.9"/>
-        <circle cx="25" cy="23" r="3" fill="#ffca28" fill-opacity="0.9"/>
-        <circle cx="5"  cy="23" r="3" fill="#ef5350" fill-opacity="0.9"/>
-        <circle cx="15" cy="3"  r="3" fill="#ab47bc" fill-opacity="0.9"/>
-        <circle cx="15" cy="15" r="5" fill="white"   stroke="#4fc3f7" stroke-width="1.5"/>
+        <path d="M22 6 A10 10 0 1 0 22 24" stroke="#4fc3f7" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+        <path d="M18 10 A6 6 0 1 0 18 20" stroke="#ab47bc" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <circle cx="13" cy="15" r="2.2" fill="white" stroke="#4fc3f7" stroke-width="1.3"/>
       </svg>
       <div class="modal-head-text">
-        <h1 id="modal-title">Welcome to ScholarNet</h1>
+        <h1 id="modal-title">Welcome to CoAuthra</h1>
         <p>A research collaboration explorer powered by <strong>OpenAlex</strong>, the free and open academic publication database.<br>
         Search any researcher by name or ORCID to instantly map their co-authorship universe.</p>
       </div>
@@ -2446,15 +2431,30 @@ document.addEventListener('DOMContentLoaded',()=>{
         style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text2);
                font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;
                padding:8px 16px 7px;cursor:pointer;transition:all .15s;">How It Works</button>
+      <button id="mtab-disclaimer" onclick="switchModalTab('disclaimer')"
+        style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text2);
+               font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;
+               padding:8px 16px 7px;cursor:pointer;transition:all .15s;">Disclaimer</button>
     </div>
 
     <!-- Tab: Guide -->
     <div id="mtabpanel-guide" class="modal-body">
+
+      <!-- Rebranding notice -->
+      <div style="background:rgba(79,195,247,0.08);border:1px solid rgba(79,195,247,0.35);border-radius:5px;padding:9px 13px;margin-bottom:10px;display:flex;align-items:flex-start;gap:9px;">
+        <span style="font-size:15px;flex-shrink:0;line-height:1.3;">📢</span>
+        <div style="font-size:11.5px;color:var(--text2);line-height:1.6;">
+          <strong style="color:var(--accent);">ScholarNet is now CoAuthra.</strong>
+          This site has been rebranded from ScholarNet to <strong style="color:var(--text);">CoAuthra</strong>.
+          The old URL <span style="color:var(--text2);">scholarnet.net</span> will automatically be redirected to <strong style="color:var(--text);">coauthra.com</strong>.
+        </div>
+      </div>
+
       <div class="modal-grid">
 
         <div class="mcard">
           <h3><span>🔍</span> Search</h3>
-          <p>Type a <strong>researcher name</strong> or paste an <strong>ORCID iD</strong> and hit <em>Search</em>. ScholarNet fetches all their publications and builds a live network of collaborators — no account needed.</p>
+          <p>Type a <strong>researcher name</strong> or paste an <strong>ORCID iD</strong> and hit <em>Search</em>. CoAuthra fetches all their publications and builds a live network of collaborators — no account needed.</p>
         </div>
 
         <div class="mcard">
@@ -2498,7 +2498,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 
         <div class="mcard" style="grid-column:1/-1;height:auto;overflow-y:visible;">
           <h3><span>📡</span> Data Source</h3>
-          <p>All publication and author data is fetched live from <a href="https://openalex.org" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">OpenAlex</a> — a free, open academic graph cataloguing <strong>474 million scholarly works</strong>. When you search a researcher, ScholarNet calls the OpenAlex REST API to retrieve their full publication list using cursor-based pagination (200 papers per request), then enriches each co-author with citation counts, institutions, and geographic data via batched author lookups.</p>
+          <p>All publication and author data is fetched live from <a href="https://openalex.org" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">OpenAlex</a> — a free, open academic graph cataloguing <strong>474 million scholarly works</strong>. When you search a researcher, CoAuthra calls the OpenAlex REST API to retrieve their full publication list using cursor-based pagination (200 papers per request), then enriches each co-author with citation counts, institutions, and geographic data via batched author lookups.</p>
         </div>
 
         <div class="mcard" style="grid-column:1/-1;height:auto;overflow-y:visible;">
@@ -2524,6 +2524,33 @@ document.addEventListener('DOMContentLoaded',()=>{
       </div>
     </div>
 
+    <!-- Tab: Disclaimer -->
+    <div id="mtabpanel-disclaimer" class="modal-body" style="display:none;">
+      <div class="modal-grid">
+
+        <div class="mcard" style="grid-column:1/-1;height:auto;overflow-y:visible;">
+          <h3><span>📂</span> Data Source</h3>
+          <p>All publication, authorship, citation, and institutional data displayed on CoAuthra is sourced exclusively from <a href="https://openalex.org" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">OpenAlex</a>, a free and open academic publication database maintained by <a href="https://ourresearch.org" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">OurResearch</a>. CoAuthra does not generate, modify, or independently verify any of this data. All records are retrieved live via the OpenAlex public API at the time of your search.</p>
+        </div>
+
+        <div class="mcard" style="grid-column:1/-1;height:auto;overflow-y:visible;border-left:3px solid rgba(255,112,67,0.6);">
+          <h3 style="color:#ff8a65;"><span>⚠️</span> Data Accuracy</h3>
+          <p>The data presented on this website may be <strong style="color:var(--text);">incomplete, incorrect, or out of date</strong>. OpenAlex's coverage and accuracy varies by field, institution, and publication era. Author disambiguation, affiliation assignment, citation counts, and open access status are all computed algorithmically and may contain errors. CoAuthra presents this data as-is and makes no warranties regarding its accuracy, completeness, or fitness for any particular purpose.</p>
+        </div>
+
+        <div class="mcard" style="grid-column:1/-1;height:auto;overflow-y:visible;">
+          <h3><span>🚫</span> Limitation of Liability</h3>
+          <p>The owner of this website and any organisations, institutions, or affiliations associated with the owner accept <strong style="color:var(--text);">no responsibility or liability</strong> for the quality, accuracy, or completeness of data displayed on CoAuthra, nor for any decisions, actions, or consequences arising from its use. This tool is provided for informational and exploratory purposes only and should not be relied upon for official academic, professional, or legal purposes.</p>
+        </div>
+
+        <div class="mcard" style="grid-column:1/-1;height:auto;overflow-y:visible;">
+          <h3><span>🔗</span> Third-Party Data</h3>
+          <p>OpenAlex data is made available under the <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">CC0 1.0 Universal (Public Domain)</a> licence. Any concerns about data accuracy or missing records should be directed to <a href="https://openalex.org" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">OpenAlex</a> directly. CoAuthra has no ability to modify or correct the underlying dataset.</p>
+        </div>
+
+      </div>
+    </div>
+
     <!-- Footer -->
     <div class="modal-footer" style="flex-direction:column;align-items:stretch;gap:12px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -2536,7 +2563,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       <div style="text-align:center;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;">
         <span>Questions or feedback? <span id="contact-link"></span></span>
         <span>Data source: <a href="https://openalex.org" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">OpenAlex API ↗</a></span>
-        <span>ScholarNet © 2026 by Joe Barnier is licensed under <a href="https://creativecommons.org/licenses/by-nc-nd/4.0/" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">CC BY-NC-ND 4.0 ↗</a></span>
+        <span>CoAuthra © 2026 by Joe Barnier is licensed under <a href="https://creativecommons.org/licenses/by-nc-nd/4.0/" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">CC BY-NC-ND 4.0 ↗</a></span>
       </div>
     </div>
   </div>
